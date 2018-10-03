@@ -31,15 +31,8 @@
 
 // Globals
 int LOOP_CTRL = 1;
-int MAN_CTRL;
-double THREADCOUNT; // deprecated?
 double VERBOSE;
-double EXPERIMENTAL;
 double REPORT;
-int MEM_POW_SHIFT = 1;
-int THROTTLE_AVOID = 1;
-double MEM_FRQ_OVERRIDE = 0.0;
-double CPU_FRQ_OVERRIDE = 0.0;
 char CLASS_NAMES[NUM_CLASSES + 1][8] = {"CPU\0", "MEM\0", "IO\0", "MIX\0", "UNK\0"};
 
 void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgrate)
@@ -132,7 +125,7 @@ void dump_data(struct powgov_runtime *runtime, FILE **outfile)
 	struct data_sample **thread_samples = runtime->sampler->thread_samples;
 	static long last_dump_loc = 0;
 	int j;
-	for (j = 0; j < THREADCOUNT; j++)
+	for (j = 0; j < runtime->cfg->threadcount; j++)
 	{
 		if (last_dump_loc == 0)
 		{
@@ -198,7 +191,7 @@ void dump_config(struct powgov_runtime *runtime, FILE *out)
 			runtime->power->rapl1, runtime->power->rapl2, runtime->power->window);
 	fprintf(out, "\tsamples per second %u\n", runtime->sampler->sps);
 	fprintf(out, "\tgovernor bound to core %d\n", runtime->sys->num_cpu);
-	if (MAN_CTRL == 1)
+	if (runtime->cfg->man_cpu_ctrl == 1)
 	{
 		fprintf(out, "\tgovernor frequency control ON\n");
 	}
@@ -206,16 +199,16 @@ void dump_config(struct powgov_runtime *runtime, FILE *out)
 	{
 		fprintf(out, "\tgovernor frequency control OFF\n");
 	}
-	if (MEM_FRQ_OVERRIDE != 0.0)
+	if (runtime->cfg->mem_frq_override != 0.0)
 	{
-		fprintf(out, "\tforced memory phase frequency %lf\n", MEM_FRQ_OVERRIDE);
+		fprintf(out, "\tforced memory phase frequency %lf\n", runtime->cfg->mem_frq_override);
 	}
-	if (CPU_FRQ_OVERRIDE != 0.0)
+	if (runtime->cfg->cpu_frq_override != 0.0)
 	{
-		fprintf(out, "\tforced cpu phase frequency %lf\n", CPU_FRQ_OVERRIDE);
+		fprintf(out, "\tforced cpu phase frequency %lf\n", runtime->cfg->cpu_frq_override);
 	}
-	fprintf(out, "\tthrottle avoidance %s\n", (THROTTLE_AVOID ? "enabled" : "disabled"));
-	fprintf(out, "\tmemory power shifting %s\n", (MEM_POW_SHIFT ? "enabled" : "disabled"));
+	fprintf(out, "\tthrottle avoidance %s\n", (runtime->cfg->throttle_avoid ? "enabled" : "disabled"));
+	fprintf(out, "\tmemory power shifting %s\n", (runtime->cfg->mem_pow_shift ? "enabled" : "disabled"));
 }
 
 void dump_sys(struct powgov_runtime *runtime, FILE *out)
@@ -265,23 +258,36 @@ int main(int argc, char **argv)
 	sigprocmask(SIG_UNBLOCK, &sset, NULL);
 
 
-	struct powgov_runtime *runtime = calloc(1, sizeof(struct powgov_runtime));;
-	runtime->sys = calloc(1, sizeof(struct powgov_sysconfig));
-	runtime->files = calloc(1, sizeof(struct powgov_files));
-	runtime->sampler = calloc(1, sizeof(struct powgov_sampler));
-	runtime->sampler->samplectrs = (unsigned long *) calloc(THREADCOUNT, sizeof(unsigned long));
-	runtime->classifier = calloc(1, sizeof(struct powgov_classifier));
-	runtime->power = calloc(1, sizeof(struct powgov_power));
+	struct powgov_runtime *runtime = (struct powgov_runtime *) calloc(1, sizeof(struct powgov_runtime));;
+	runtime->sys = (struct powgov_sysconfig *) calloc(1, sizeof(struct powgov_sysconfig));
+	runtime->files = (struct powgov_files *) calloc(1, sizeof(struct powgov_files));
+	runtime->sampler = (struct powgov_sampler *) calloc(1, sizeof(struct powgov_sampler));
+	runtime->sampler->samplectrs = (unsigned long *) calloc(runtime->cfg->threadcount, sizeof(unsigned long));
+	runtime->sampler->l1 = (struct powgov_l1 *) calloc(1, sizeof(struct powgov_l1));
+	runtime->sampler->l2 = (struct powgov_l2 *) calloc(1, sizeof(struct powgov_l2));
+	runtime->sampler->l3 = (struct powgov_l3 *) calloc(1, sizeof(struct powgov_l3));
+	runtime->classifier = (struct powgov_classifier *) calloc(1, sizeof(struct powgov_classifier));
+	runtime->power = (struct powgov_power *) calloc(1, sizeof(struct powgov_power));
+	runtime->cfg = (struct powgov_config *) calloc(1, sizeof(struct powgov_config));
 	// initialize power governor configurization
 	runtime->sampler->total_samples = 0;
 	runtime->sampler->sps = 500; // -r for "rate"
 	runtime->classifier->dist_thresh = 0.25;
 	runtime->classifier->pct_thresh = 0.01;
-	MAN_CTRL = 1; // -s for "system control"
-	THREADCOUNT = 1; // deprecated, no user control
+	runtime->cfg->man_cpu_ctrl = 1; // -s for "system control"
+	runtime->cfg->threadcount = 1;
+	runtime->cfg->experimental = 0; // -e for experimental
+	runtime->cfg->mem_pow_shift = 0;
+	runtime->cfg->fup_timeout = 100;
+	runtime->cfg->frq_duty_length = 10;
+	runtime->cfg->cpu_frq_override = 0.0;
+	runtime->cfg->mem_frq_override = 0.0;
+	runtime->cfg->throttle_step_mult = 5.0;
+	runtime->cfg->frq_change_step = 0.1;
+	runtime->cfg->throttle_avoid = 1;
+
 	// TODO: sampling should just dump every x seconds
 	VERBOSE = 0; // -v for "verbose"
-	EXPERIMENTAL = 0; // -e for experimental
 	REPORT = 0; // -R for report
 	// TODO: these should be read in from a file
 	// these are the values at 800MHz, linear regression model based on frequency is used
@@ -389,7 +395,7 @@ int main(int argc, char **argv)
 						runtime->classifier->pct_thresh = (double) atof(argv[j+1]);
 						break;
 					case 's':
-						MAN_CTRL = 0;	
+						runtime->cfg->man_cpu_ctrl = 0;	
 						break;
 					case 'v':
 						VERBOSE = 1;
@@ -398,37 +404,37 @@ int main(int argc, char **argv)
 						REPORT = 1;
 						break;
 					case 'e':
-						EXPERIMENTAL = 1;
+						runtime->cfg->experimental = 1;
 						break;
 					case 'O':
 						printf("Error: this feature %s not implemented yet\n", argv[j]);
 						exit(-1);
 						break;
 					case 'S':
-						MEM_POW_SHIFT = 0;
+						runtime->cfg->mem_pow_shift = 0;
 						break;
 					case 'A':
-						THROTTLE_AVOID = 0;
+						runtime->cfg->throttle_avoid = 0;
 						break;
 					case 'M':
 						ARG_ERROR;
-						if (MEM_POW_SHIFT != 0)
+						if (runtime->cfg->mem_pow_shift != 0)
 						{
 							printf("Error: %s requires memory power shifting to be disabled (-S)\n",
 									argv[j]);
 							exit(-1);
 						}
-						MEM_FRQ_OVERRIDE = (double) atof(argv[j+1]);
+						runtime->cfg->mem_frq_override = (double) atof(argv[j+1]);
 						break;
 					case 'C':
 						ARG_ERROR;
-						if (THROTTLE_AVOID != 0)
+						if (runtime->cfg->throttle_avoid != 0)
 						{
 							printf("Error: %s requires throttle avoidance to be disabled (-A)\n",
 									argv[j]);
 							exit(-1);
 						}
-						CPU_FRQ_OVERRIDE = (double) atof(argv[j+1]);
+						runtime->cfg->cpu_frq_override = (double) atof(argv[j+1]);
 						break;
 					case 'h':
 					default:
@@ -448,7 +454,7 @@ int main(int argc, char **argv)
 
 	// finish configuration based on arguments
 	unsigned srate = (1000.0 / runtime->sampler->sps) * 1000u;
-	if (MAN_CTRL)
+	if (runtime->cfg->man_cpu_ctrl)
 	{
 		enable_turbo(runtime);
 		set_perf(runtime, runtime->sys->max_pstate);
@@ -510,7 +516,7 @@ int main(int argc, char **argv)
 
 
 	// begin sampling if argument present
-	if (EXPERIMENTAL)
+	if (runtime->cfg->experimental)
 	{
 		init_sampling(runtime);
 	}
@@ -645,11 +651,11 @@ int main(int argc, char **argv)
 
 
 	// dump sampler data if argument present
-	if (EXPERIMENTAL)
+	if (runtime->cfg->experimental)
 	{
 		dump_data(runtime, runtime->files->sampler_dumpfiles);
 		int i;
-		for (i = 0; i < THREADCOUNT; i++)
+		for (i = 0; i < runtime->cfg->threadcount; i++)
 		{
 			free(runtime->sampler->thread_samples[i]);
 			fclose(runtime->files->sampler_dumpfiles[i]);

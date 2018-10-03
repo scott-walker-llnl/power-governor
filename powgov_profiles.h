@@ -82,5 +82,3 @@ int classify_phase(struct powgov_runtime *runtime, struct phase_profile *phase, 
 void classify_and_react(struct powgov_runtime *runtime, int phase, char wasthrottled, uint64_t perf);
 double ipc_scale(double ipc_unscaled, double frq_source, double frq_target);
 void frequency_scale_phase(struct phase_profile *unscaled_profile, double frq_source, double frq_target, struct phase_profile *scaled_profile);
-int branch_same_phase(struct powgov_runtime *runtime, struct phase_profile *this_profile, uint64_t perf, char wasthrottled, char isthrottled, double phase_avgfrq);
-int branch_change_phase(struct powgov_runtime *runtime, struct phase_profile *this_profile, uint64_t perf, char wasthrottled, char isthrottled, double phase_avgfrq);

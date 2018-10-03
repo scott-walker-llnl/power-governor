@@ -16,3 +16,5 @@ struct powgov_l1
 };
 
 void pow_aware_perf(struct powgov_runtime *runtime);
+int branch_same_phase(struct powgov_runtime *runtime, struct phase_profile *this_profile, uint64_t perf, char wasthrottled, char isthrottled, double phase_avgfrq);
+int branch_change_phase(struct powgov_runtime *runtime, struct phase_profile *this_profile, uint64_t perf, char wasthrottled, char isthrottled, double phase_avgfrq);
