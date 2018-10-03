@@ -1,3 +1,13 @@
+#include <stdint.h>
+#include <stdio.h>
+#include <math.h>
+
+#include "msr_core.h"
+#include "cpuid.h"
+#include "msr_counters.h"
+#include "master.h"
+#include "powgov_util.h"
+
 void dump_rapl(FILE *out)
 {
 	uint64_t rapl;
@@ -149,7 +159,7 @@ void hwpstuff(FILE *out)
 	uint64_t rax, rbx, rcx, rdx;
 	rax = rbx = rcx = rdx = 0;
 	cpuid(0x6, &rax, &rbx, &rcx, &rdx);
-	if (rax & (0x1ul << 7) == 0)
+	if ((rax & (0x1ul << 7)) == 0)
 	{
 		fprintf(out, "\thwp is not supported or disabled\n");
 		return;

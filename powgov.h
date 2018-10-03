@@ -1,11 +1,15 @@
 #pragma once
+#include <stdio.h>
 #include "msr_core.h"
 #include "master.h"
 #include "powgov_profiles.h"
 #include "powgov_sampler.h"
-#include "powgov_l1.h"
-#include "powgov_l2.h"
-#include "powgov_l3.h"
+
+#define FNAMESIZE 32
+
+struct powgov_classifier;
+struct powgov_sampler;
+struct data_sample;
 
 struct powgov_sysconfig
 {
@@ -40,17 +44,19 @@ struct powgov_power
 	char excursion;
 };
 
-struct powgov_sampler
+struct powgov_config
 {
-	unsigned long *samplectrs; // counter for number of samples on each thread
-	struct data_sample **thread_samples;
-	unsigned long numsamples;
-	struct data_sample first_sample;
-	struct powgov_l1 l1;
-	struct powgov_l2 l2;
-	struct powgov_l3 l3;
-	unsigned sps;
-	unsigned long total_samples;
+	char man_cpu_ctrl;
+	char throttle_avoid;
+	char mem_pow_shift;
+	char experimental;
+	float cpu_frq_override;
+	float mem_frq_override;
+	float frq_change_step;
+	float throttle_step_mult;
+	unsigned short fup_timeout;
+	unsigned short frq_duty_length;
+	unsigned short threadcount;
 };
 
 struct powgov_runtime
@@ -60,6 +66,7 @@ struct powgov_runtime
 	struct powgov_sampler *sampler;
 	struct powgov_classifier *classifier;
 	struct powgov_power *power;
+	struct powgov_config *cfg;
 };
 
 void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgrate);

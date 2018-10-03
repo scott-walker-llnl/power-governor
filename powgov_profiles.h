@@ -2,6 +2,10 @@
 #include "powgov.h"
 #define MAX_PROFILES 20
 #define NUM_CLASSES 4
+#define RECLASSIFY_INTERVAL 20
+#define SCALE_OUTLIER_THRESH_LOW 0.8
+#define SCALE_OUTLIER_THRESH_HIGH 1.2
+#define SCALE_THRESH 1.0 // 100MHz
 
 #define CLASS_CPU_SLOPE_IPC 0.63396
 #define CLASS_CPU_SLOPE_EPC 0.13005
@@ -25,8 +29,6 @@ enum CLASS_ID
 	CLASS_MIX,
 	CLASS_UNKNOWN,
 };
-
-struct powgov_runtime;
 
 struct phase_profile
 {

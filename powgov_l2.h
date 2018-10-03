@@ -1,5 +1,5 @@
 #pragma once
-#include "powgov_sampler.h"
+#include "powgov.h"
 
 struct powgov_l2
 {

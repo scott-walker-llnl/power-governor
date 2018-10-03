@@ -1,4 +1,8 @@
 #pragma once
+#include "powgov.h"
+
+#define MSR_TURBO_RATIO_LIMIT 0x1AD 
+
 void dump_rapl(FILE *out);
 void enable_turbo(struct powgov_runtime *runtime);
 void disable_turbo(struct powgov_runtime *runtime);

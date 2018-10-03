@@ -486,15 +486,15 @@ int main(int argc, char **argv)
 			runtime->sys->rapl_seconds_unit, 0);
 	set_rapl2(100, runtime->power->rapl2, runtime->sys->rapl_power_unit, runtime->sys->rapl_seconds_unit, 0);
 	runtime->power->energy_overflow = 0;
-	runtime->sampler->l1.interval = 1000 / runtime->sampler->sps;
-	runtime->sampler->l2.interval = (unsigned) (runtime->power->window * 1000.0);
-	runtime->sampler->l3.interval = runtime->sampler->sps;
-	runtime->sampler->l3.baseline_ipc = 0.0;
-	runtime->sampler->l3.scalability = 0.0;
+	runtime->sampler->l1->interval = 1000 / runtime->sampler->sps;
+	runtime->sampler->l2->interval = (unsigned) (runtime->power->window * 1000.0);
+	runtime->sampler->l3->interval = runtime->sampler->sps;
+	runtime->sampler->l3->baseline_ipc = 0.0;
+	runtime->sampler->l3->scalability = 0.0;
 	runtime->power->excursion = 0;
-	runtime->sampler->l3.seq_end = -1;
-	memset(runtime->sampler->l3.sequence, -1, MAX_L3_SEQ * sizeof(unsigned char));
-	memset(runtime->sampler->l3.seq_cycles, 0, MAX_L3_SEQ * sizeof(uint64_t));
+	runtime->sampler->l3->seq_end = -1;
+	memset(runtime->sampler->l3->sequence, -1, MAX_L3_SEQ * sizeof(unsigned char));
+	memset(runtime->sampler->l3->seq_cycles, 0, MAX_L3_SEQ * sizeof(uint64_t));
 
 
 	// print verbose descriptions to stdout
@@ -599,7 +599,7 @@ int main(int argc, char **argv)
 		fprintf(runtime->files->sreport, "\tIPS: %lf (ovf %u)\n", 
 				(inst_after - inst_before) / exec_time, ovf_ctr);
 		
-		uint64_t energy_end = runtime->sampler->l1.new_sample.energy_data;
+		uint64_t energy_end = runtime->sampler->l1->new_sample.energy_data;
 		uint64_t energy_begin = runtime->sampler->first_sample.energy_data;
 		if (runtime->power->energy_overflow > 0)
 		{

@@ -1,5 +1,8 @@
 #pragma once
-#include "powgov_sampler.h"
+#include <stdint.h>
+#include "powgov.h"
+#include "powgov_profiles.h"
+
 #define MAX_L3_SEQ 32
 
 struct powgov_l3
@@ -13,6 +16,7 @@ struct powgov_l3
 	unsigned char sequence[MAX_L3_SEQ];
 	uint64_t seq_cycles[MAX_L3_SEQ];
 	uint64_t last_cyc;
-	unsigned char graph[MAX_PROFILES][MAX_PROFILES];
+	// unsigned char graph[MAX_PROFILES][MAX_PROFILES];
 };
+
 void l3_analysis(struct powgov_runtime *runtime);

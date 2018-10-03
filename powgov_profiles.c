@@ -1,3 +1,9 @@
+#include <math.h>
+#include <string.h>
+#include <float.h>
+#include "powgov_profiles.h"
+#include "powgov_util.h"
+
 double metric_distance(struct phase_profile *old, struct phase_profile *new, struct phase_profile *maximums,
 	struct phase_profile *minimums)
 {
@@ -117,7 +123,7 @@ void agglomerate_profiles(struct powgov_runtime *runtime)
 			}
 			// TODO: instead of clearing, update prev_phases
 			profiles[newidx].lastprev = 0;
-			memset(profiles[newidx].prev_phases, -1, MAX_HISTORY);
+			/* memset(profiles[newidx].prev_phases, -1, MAX_HISTORY); */
 			newidx++;
 		}
 	}
@@ -140,7 +146,7 @@ void agglomerate_profiles(struct powgov_runtime *runtime)
 				}
 				memcpy(&profiles[newidx], &old_profiles[i], sizeof(struct phase_profile));
 				runtime->classifier->profiles[newidx].lastprev = 0;
-				memset(profiles[newidx].prev_phases, -1, MAX_HISTORY);
+				/* memset(profiles[newidx].prev_phases, -1, MAX_HISTORY); */
 
 				newidx++;
 			}
@@ -323,22 +329,22 @@ void update_profile(struct powgov_runtime *runtime, struct phase_profile *this_p
 			(avgfrq * (1.0 / (profiles[profidx].occurrences + 1.0)));
 	profiles[profidx].occurrences++;
 
-	char last = profiles[profidx].lastprev;
-	int i;
-	for (i = 0; i <= last && i < MAX_HISTORY; i++)
-	{
-		if (profiles[profidx].prev_phases[i] == lastphase)
-		{
-			// it's already there
-			return;
-		}
-	}
-	if (last < MAX_HISTORY)
-	{
-		last++;
-		profiles[profidx].prev_phases[last] = lastphase;
-		profiles[profidx].lastprev = last;
-	}
+	/* char last = profiles[profidx].lastprev; */
+	/* int i; */
+	/* for (i = 0; i <= last && i < MAX_HISTORY; i++) */
+	/* { */
+	/* 	if (profiles[profidx].prev_phases[i] == lastphase) */
+	/* 	{ */
+	/* 		// it's already there */
+	/* 		return; */
+	/* 	} */
+	/* } */
+	/* if (last < MAX_HISTORY) */
+	/* { */
+	/* 	last++; */
+	/* 	profiles[profidx].prev_phases[last] = lastphase; */
+	/* 	profiles[profidx].lastprev = last; */
+	/* } */
 }
 
 void add_profile(struct powgov_runtime *runtime, struct phase_profile *this_profile, uint64_t perf, unsigned this_throttle, double avgfrq, int lastphase)
@@ -358,8 +364,8 @@ void add_profile(struct powgov_runtime *runtime, struct phase_profile *this_prof
 	profiles[numphases].avg_cycle = 0;
 	profiles[numphases].num_throttles = this_throttle;
 	profiles[numphases].occurrences = 0;
-	memset(profiles[numphases].prev_phases, -1, MAX_HISTORY);
-	profiles[numphases].prev_phases[0] = lastphase;
+	/* memset(profiles[numphases].prev_phases, -1, MAX_HISTORY); */
+	/* profiles[numphases].prev_phases[0] = lastphase; */
 	profiles[numphases].lastprev = 0;
 	profiles[numphases].class = 4;
 	profiles[numphases].unthrot_count = 0;
@@ -400,25 +406,25 @@ int classify_phase(struct powgov_runtime *runtime, struct phase_profile *phase, 
 	}
 	phase->class = minidx;
 	phase->reclass_count = 0;
-	if (runtime->sampler->l3.seq_end < 0)
+	if (runtime->sampler->l3->seq_end < 0)
 	{
-		runtime->sampler->l3.seq_end = 0;
-		runtime->sampler->l3.sequence[runtime->sampler->l3.seq_end] = phase->class;
-		runtime->sampler->l3.seq_cycles[runtime->sampler->l3.seq_end] =
-				runtime->sampler->l1.new_sample.tsc_data - 
-				runtime->sampler->l3.last_cyc;
-		runtime->sampler->l3.last_cyc = runtime->sampler->l1.new_sample.tsc_data;
+		runtime->sampler->l3->seq_end = 0;
+		runtime->sampler->l3->sequence[runtime->sampler->l3->seq_end] = phase->class;
+		runtime->sampler->l3->seq_cycles[runtime->sampler->l3->seq_end] =
+				runtime->sampler->l1->new_sample.tsc_data - 
+				runtime->sampler->l3->last_cyc;
+		runtime->sampler->l3->last_cyc = runtime->sampler->l1->new_sample.tsc_data;
 	}
-	else if (phase->class != runtime->sampler->l3.sequence[runtime->sampler->l3.seq_end])
+	else if (phase->class != runtime->sampler->l3->sequence[runtime->sampler->l3->seq_end])
 	{
-		if (runtime->sampler->l3.seq_end < MAX_L3_SEQ)
+		if (runtime->sampler->l3->seq_end < MAX_L3_SEQ)
 		{
-			runtime->sampler->l3.seq_end++;
-			runtime->sampler->l3.sequence[runtime->sampler->l3.seq_end] = phase->class;
-			runtime->sampler->l3.seq_cycles[runtime->sampler->l3.seq_end] =
-					runtime->sampler->l1.new_sample.tsc_data - 
-					runtime->sampler->l3.last_cyc;
-			runtime->sampler->l3.last_cyc = runtime->sampler->l1.new_sample.tsc_data;
+			runtime->sampler->l3->seq_end++;
+			runtime->sampler->l3->sequence[runtime->sampler->l3->seq_end] = phase->class;
+			runtime->sampler->l3->seq_cycles[runtime->sampler->l3->seq_end] =
+					runtime->sampler->l1->new_sample.tsc_data - 
+					runtime->sampler->l3->last_cyc;
+			runtime->sampler->l3->last_cyc = runtime->sampler->l1->new_sample.tsc_data;
 		}
 	}
 #ifdef DEBUG
@@ -448,35 +454,35 @@ void classify_and_react(struct powgov_runtime *runtime, int phase, char wasthrot
 		class = profiles[phase].class;
 		profiles[phase].reclass_count++;
 	}
-	if (MAN_CTRL)
+	if (runtime->cfg->man_cpu_ctrl)
 	{
 		if (class == CLASS_CPU)
 		{
-			if (CPU_FRQ_OVERRIDE != 0.0)
+			if (runtime->cfg->cpu_frq_override != 0.0)
 			{
-				profiles[phase].frq_target = CPU_FRQ_OVERRIDE * 10.0;
+				profiles[phase].frq_target = runtime->cfg->cpu_frq_override * 10.0;
 				set_perf(runtime, (uint16_t) profiles[phase].frq_target);
 				return;
 			}
 			if (runtime->power->excursion)
 			{
-				profiles[phase].frq_target -= FRQ_CHANGE_STEP * 2;
+				profiles[phase].frq_target -= runtime->cfg->frq_change_step * 2;
 				runtime->power->excursion = 0;
 			}
 		}
-		if (wasthrottled && THROTTLE_AVOID)
+		if (wasthrottled && runtime->cfg->throttle_avoid)
 		{
-			set_perf(runtime, (uint16_t) (profiles[phase].frq_target - FRQ_CHANGE_STEP * 
-						THROTTLE_STEP_MULT));
+			set_perf(runtime, (uint16_t) (profiles[phase].frq_target - runtime->cfg->frq_change_step * 
+						runtime->cfg->throttle_step_mult));
 			if (perf < profiles[phase].frq_target)
 			{
-				profiles[phase].frq_target -= FRQ_CHANGE_STEP * THROTTLE_STEP_MULT;
+				profiles[phase].frq_target -= runtime->cfg->frq_change_step * runtime->cfg->throttle_step_mult;
 			}
 			profiles[phase].unthrot_count = 0;
 		}
 		else if (class == CLASS_MEM)
 		{
-			if (MEM_POW_SHIFT)
+			if (runtime->cfg->mem_pow_shift)
 			{
 				profiles[phase].frq_target = runtime->classifier->mem_freq_throttle;
 				set_perf(runtime, (uint16_t) profiles[phase].frq_target);
@@ -509,10 +515,10 @@ void classify_and_react(struct powgov_runtime *runtime, int phase, char wasthrot
 				/* 	set_perf(runtime, (uint16_t) profiles[phase].frq_target); */
 				/* } */
 			}
-			else if (MEM_FRQ_OVERRIDE != 0.0)
+			else if (runtime->cfg->mem_frq_override != 0.0)
 			{
 				// power shifting with user override
-				profiles[phase].frq_target = MEM_FRQ_OVERRIDE * 10.0;
+				profiles[phase].frq_target = runtime->cfg->mem_frq_override * 10.0;
 				set_perf(runtime, (uint16_t) profiles[phase].frq_target);
 			}
 			else
@@ -527,12 +533,12 @@ void classify_and_react(struct powgov_runtime *runtime, int phase, char wasthrot
 			// TODO fix this control flow nightmare
 			if (perf > profiles[phase].frq_target && profiles[phase].frq_target < runtime->sys->max_pstate)
 			{
-				profiles[phase].frq_target += FRQ_CHANGE_STEP;
+				profiles[phase].frq_target += runtime->cfg->frq_change_step;
 			}
 			if (profiles[phase].frq_target < runtime->sys->max_pstate &&
-				profiles[phase].unthrot_count >= FUP_TIMEOUT)
+				profiles[phase].unthrot_count >= runtime->cfg->fup_timeout)
 			{
-				profiles[phase].frq_target += FRQ_CHANGE_STEP;
+				profiles[phase].frq_target += runtime->cfg->frq_change_step;
 				// TODO may want to have separate counter for this, timeout before each freq increase
 				// although not wrong because self throttling...
 				profiles[phase].unthrot_count = 0;
@@ -543,7 +549,7 @@ void classify_and_react(struct powgov_runtime *runtime, int phase, char wasthrot
 			}
 			double ratio = profiles[phase].frq_target - (double)((uint16_t) profiles[phase].frq_target);
 			profiles[phase].frq_duty_count++;
-			if (profiles[phase].frq_duty_count < ratio * FRQ_DUTY_LENGTH)
+			if (profiles[phase].frq_duty_count < ratio * runtime->cfg->frq_duty_length)
 			{
 				// set perf to ciel
 				set_perf(runtime, (uint16_t) profiles[phase].frq_target + 1);
@@ -553,7 +559,7 @@ void classify_and_react(struct powgov_runtime *runtime, int phase, char wasthrot
 				// set perf to floor
 				set_perf(runtime, (uint16_t) profiles[phase].frq_target);
 			}
-			if (profiles[phase].frq_duty_count > FRQ_DUTY_LENGTH)
+			if (profiles[phase].frq_duty_count > runtime->cfg->frq_duty_length)
 			{
 				profiles[phase].frq_duty_count = 0;
 			}
@@ -742,4 +748,5 @@ int branch_change_phase(struct powgov_runtime *runtime, struct phase_profile *th
 	{
 		agglomerate_profiles(runtime);
 	}
+	return 0;
 }
