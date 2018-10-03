@@ -7,15 +7,15 @@ void pow_aware_perf(struct powgov_runtime *runtime)
 	static uint64_t begin_aperf = 0, begin_mperf = 0;
 	static uint64_t last_aperf = 0, last_mperf = 0;
 	static uint64_t tsc_timer = 0;
-	static uint64_t phase_start_tsc = 0;
-	struct phase_profile *profiles = runtime->classifier->profiles;
+	/* static uint64_t phase_start_tsc = 0; */
+	/* struct phase_profile *profiles = runtime->classifier->profiles; */
 
 	if (last_aperf == 0)
 	{
 		read_msr_by_coord(0, 0, 0, MSR_IA32_MPERF, &begin_mperf);
 		read_msr_by_coord(0, 0, 0, MSR_IA32_APERF, &begin_aperf);
 		read_msr_by_coord(0, 0, 0, IA32_TIME_STAMP_COUNTER, &tsc_timer);
-		phase_start_tsc = tsc_timer;
+		/* phase_start_tsc = tsc_timer; */
 		last_aperf = begin_aperf;
 		last_mperf = begin_mperf;
 	}
@@ -94,7 +94,7 @@ void pow_aware_perf(struct powgov_runtime *runtime)
 	/* profiles[runtime->classifier->recentphase].avg_cycle = (double) */
 		/* (runtime->sampler->l1->new_sample.tsc_data - phase_start_tsc); */
 
-	double pcyc = (double) (runtime->sampler->l1->new_sample.tsc_data - phase_start_tsc);
+	/* double pcyc = (double) (runtime->sampler->l1->new_sample.tsc_data - phase_start_tsc); */
 	/* profiles[runtime->classifier->recentphase].avg_cycle = */
 	/* 	weighted_avg_flt(profiles[runtime->classifier->recentphase].occurrences, */
 	/* 	profiles[runtime->classifier->recentphase].avg_cycle, */
@@ -102,7 +102,7 @@ void pow_aware_perf(struct powgov_runtime *runtime)
 	/* printf("cycle %d len: %lf\n", runtime->classifier->recentphase,  */
 			/* profiles[runtime->classifier->recentphase].avg_cycle); */
 
-	phase_start_tsc = runtime->sampler->l1->new_sample.tsc_data;
+	/* phase_start_tsc = runtime->sampler->l1->new_sample.tsc_data; */
 	last_aperf = aperf;
 	last_mperf = mperf;
 	branch_change_phase(runtime, &this_profile, perf, wasthrottled, isthrottled, phase_avgfrq);

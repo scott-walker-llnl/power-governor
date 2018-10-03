@@ -5,6 +5,8 @@
 
 #define MAX_L3_SEQ 32
 
+struct powgov_runtime;
+
 struct powgov_l3
 {
 	struct data_sample new_sample;

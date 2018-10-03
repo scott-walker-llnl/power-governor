@@ -6,6 +6,8 @@
 #define LIMIT_ON_RAPL 0x0000C00
 #define MSR_CORE_PERF_LIMIT_REASONS 0x64F
 
+struct powgov_runtime;
+
 struct powgov_l1
 {
 	struct data_sample new_sample;

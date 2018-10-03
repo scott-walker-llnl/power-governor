@@ -1,6 +1,8 @@
 #pragma once
 #include "powgov.h"
 
+struct powgov_runtime;
+
 struct powgov_l2
 {
 	struct data_sample new_sample;

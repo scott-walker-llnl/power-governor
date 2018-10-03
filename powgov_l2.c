@@ -1,4 +1,5 @@
 #include "powgov_l2.h"
+#include "powgov_l1.h"
 
 void l2_analysis(struct powgov_runtime *runtime)
 {

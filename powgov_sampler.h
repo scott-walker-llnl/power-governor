@@ -1,6 +1,7 @@
 #pragma once
 #include "powgov.h"
 
+struct powgov_runtime;
 struct powgov_l1;
 struct powgov_l2;
 struct powgov_l3;

@@ -13,6 +13,9 @@
 #include "powgov.h"
 #include "powgov_util.h"
 #include "powgov_sampler.h"
+#include "powgov_l1.h"
+#include "powgov_l2.h"
+#include "powgov_l3.h"
 #include "cpuid.h"
 
 #define HEADERSTRING "########################################"
@@ -107,7 +110,7 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 		fprintf(outfile, "\tavg cycles    %lf (%lf seconds)\n", profiles[i].avg_cycle,
 				profiles[i].avg_cycle / (profiles[i].avg_frq * 1000000000.0 / 10.0)); //div by 10 because freq 100MHz
 		fprintf(outfile, "\tnum throttles %u\n", profiles[i].num_throttles);
-		fprintf(outfile, "\tclass %s\n", CLASS_NAMES[profiles[i].class]);
+		fprintf(outfile, "\tclass %s\n", CLASS_NAMES[(int)profiles[i].class]);
 
 		int j;
 		for (j = 0; j < runtime->classifier->numphases; j++)
@@ -145,21 +148,21 @@ void dump_data(struct powgov_runtime *runtime, FILE **outfile)
 				thread_samples[j][i].energy_data);
 
 
-			fprintf(outfile[j], "%f\t%llx\t%llu\t%lf\t%lu\t%u\t%lx\t%llu\t%lu\t%lu\t%lu\t%lu\n",
+			fprintf(outfile[j], 
+				"%f\t%llx\t%llu\t%lf\t%llu\t%llu\t%llx\t%llu\t%llu\t%llu\t%llu\t%llu\n",
 				((thread_samples[j][i].frq_data & 0xFFFFul) >> 8) / 10.0,
 				(unsigned long long) (thread_samples[j][i].frq_data & 0xFFFFul),
 				//(unsigned long long) (thread_samples[j][i].tsc_data),
-				(unsigned long long) (thread_samples[j][i + 1].tsc_data - 
-					thread_samples[j][i].tsc_data),
+				(unsigned long long) (thread_samples[j][i + 1].tsc_data - thread_samples[j][i].tsc_data),
 				diff * runtime->sys->rapl_energy_unit / time,
 				(unsigned long long) ((thread_samples[j][i + 1].rapl_throttled & 0xFFFFFFFF) - (thread_samples[j][i].rapl_throttled & 0xFFFFFFFF)),
-				80 - ((thread_samples[j][i].therm & 0x7F0000) >> 16),
-				(unsigned long) thread_samples[j][i].perflimit,
-				thread_samples[j][i + 1].instret - thread_samples[j][i].instret,
-				thread_samples[j][i + 1].llcmiss - thread_samples[j][i].llcmiss,
-				thread_samples[j][i + 1].restalls - thread_samples[j][i].restalls,
-				thread_samples[j][i + 1].exstalls - thread_samples[j][i].exstalls,
-				thread_samples[j][i + 1].branchret - thread_samples[j][i].branchret
+				(unsigned long long) (80 - ((thread_samples[j][i].therm & 0x7F0000) >> 16)),
+				(unsigned long long) thread_samples[j][i].perflimit,
+				(unsigned long long) thread_samples[j][i + 1].instret - thread_samples[j][i].instret,
+				(unsigned long long) thread_samples[j][i + 1].llcmiss - thread_samples[j][i].llcmiss,
+				(unsigned long long) thread_samples[j][i + 1].restalls - thread_samples[j][i].restalls,
+				(unsigned long long) thread_samples[j][i + 1].exstalls - thread_samples[j][i].exstalls,
+				(unsigned long long) thread_samples[j][i + 1].branchret - thread_samples[j][i].branchret
 				);
 		}
 	}
@@ -628,7 +631,7 @@ int main(int argc, char **argv)
 			read_msr_by_coord(0, j, 0, IA32_FIXED_CTR1, &busy_unh_post);
 			double diff_unh = ((double) busy_unh_post);
 			double diff_tsc = ((double) busy_tsc_post - busy_tsc_pre[j]);
-			fprintf(runtime->files->sreport, "\ts1c%d pct busy: %lf\% (%lf/%lf)\n", j,  
+			fprintf(runtime->files->sreport, "\ts1c%d pct busy: %lf%% (%lf/%lf)\n", j,  
 					diff_unh / diff_tsc * 100.0, diff_unh, diff_tsc);
 			//read_msr_by_coord(1, j, 0, IA32_TIME_STAMP_COUNTER, &busy_tsc_post);
 			//read_msr_by_coord(1, j, 0, IA32_FIXED_CTR1, &busy_unh_post);

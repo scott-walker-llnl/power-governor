@@ -3,6 +3,9 @@
 #include <float.h>
 #include "powgov_profiles.h"
 #include "powgov_util.h"
+#include "powgov_l1.h"
+#include "powgov_l2.h"
+#include "powgov_l3.h"
 
 double metric_distance(struct phase_profile *old, struct phase_profile *new, struct phase_profile *maximums,
 	struct phase_profile *minimums)
