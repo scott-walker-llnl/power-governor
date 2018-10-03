@@ -23,7 +23,7 @@ util: powgov_util.c powgov_util.h
 	gcc -c $< -O3 -o $@.o -I${INCLUDES_PATH} -std=c99 -Wall
 
 all: powgov l1 l2 l3 profiles sampler util
-	gcc $^.o -O3 -lm -L${LIBS_PATH} -lmsr -I${INCLUDES_PATH} -o power_governor -Wall
+	gcc $(addsuffix .o, $^) -O3 -lm -L${LIBS_PATH} -lmsr -I${INCLUDES_PATH} -o power_governor -Wall
 
 clean:
 	/bin/rm -rf *.o
