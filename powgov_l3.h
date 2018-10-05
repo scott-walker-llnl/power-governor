@@ -15,9 +15,7 @@ struct powgov_l3
 	uint64_t baseline_ipc;
 	double scalability;
 	short seq_end;
-	unsigned char sequence[MAX_L3_SEQ];
-	uint64_t seq_cycles[MAX_L3_SEQ];
-	uint64_t last_cyc;
+	struct phase_profile sequence[MAX_L3_SEQ];
 	// unsigned char graph[MAX_PROFILES][MAX_PROFILES];
 };
 

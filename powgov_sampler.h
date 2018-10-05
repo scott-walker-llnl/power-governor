@@ -10,8 +10,10 @@ struct data_sample
 {
 	uint64_t frq_data;
 	uint64_t tsc_data;
+	uint64_t aperf;
+	uint64_t mperf;
 	uint64_t energy_data;
-	uint64_t rapl_throttled;
+	// uint64_t rapl_throttled;
 	uint64_t therm;
 	uint64_t perflimit;
 	uint64_t instret;

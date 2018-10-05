@@ -39,7 +39,7 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 {
 	int i;
 	uint64_t recorded_steps = 0;
-	struct phase_profile *profiles = runtime->classifier->profiles;
+	struct workload_profile *profiles = runtime->classifier->profiles;
 	for (i = 0; i < runtime->classifier->numphases; i++)
 	{
 		recorded_steps += profiles[i].occurrences;
@@ -111,7 +111,7 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 			double lpct = (double) profiles[j].occurrences / (double) recorded_steps;
 			if (lpct > runtime->classifier->pct_thresh)
 			{
-				struct phase_profile scaled_profile;
+				struct workload_profile scaled_profile;
 				frequency_scale_phase(&profiles[j], profiles[j].avg_frq, profiles[i].avg_frq, &scaled_profile);
 				double dist = metric_distance(&scaled_profile, &profiles[i], &runtime->classifier->prof_maximums, &runtime->classifier->prof_minimums);
 				fprintf(outfile, "\tdistance from %d: %lf\n", j, dist);
@@ -142,13 +142,13 @@ void dump_data(struct powgov_runtime *runtime, FILE **outfile)
 
 
 			fprintf(outfile[j], 
-				"%f\t%llx\t%llu\t%lf\t%llu\t%llu\t%llx\t%llu\t%llu\t%llu\t%llu\t%llu\n",
+				"%f\t%llx\t%llu\t%lf\t%llu\t%llx\t%llu\t%llu\t%llu\t%llu\t%llu\n",
 				((thread_samples[j][i].frq_data & 0xFFFFul) >> 8) / 10.0,
 				(unsigned long long) (thread_samples[j][i].frq_data & 0xFFFFul),
 				//(unsigned long long) (thread_samples[j][i].tsc_data),
 				(unsigned long long) (thread_samples[j][i + 1].tsc_data - thread_samples[j][i].tsc_data),
 				diff * runtime->sys->rapl_energy_unit / time,
-				(unsigned long long) ((thread_samples[j][i + 1].rapl_throttled & 0xFFFFFFFF) - (thread_samples[j][i].rapl_throttled & 0xFFFFFFFF)),
+				/* (unsigned long long) ((thread_samples[j][i + 1].rapl_throttled & 0xFFFFFFFF) - (thread_samples[j][i].rapl_throttled & 0xFFFFFFFF)), */
 				(unsigned long long) (80 - ((thread_samples[j][i].therm & 0x7F0000) >> 16)),
 				(unsigned long long) thread_samples[j][i].perflimit,
 				(unsigned long long) thread_samples[j][i + 1].instret - thread_samples[j][i].instret,
@@ -209,6 +209,7 @@ void dump_config(struct powgov_runtime *runtime, FILE *out)
 	}
 	fprintf(out, "\tthrottle avoidance %s\n", (runtime->cfg->throttle_avoid ? "enabled" : "disabled"));
 	fprintf(out, "\tmemory power shifting %s\n", (runtime->cfg->mem_pow_shift ? "enabled" : "disabled"));
+	fprintf(out, "\tclassification threshold %lf\n", runtime->classifier->dist_thresh);
 }
 
 void dump_sys(struct powgov_runtime *runtime, FILE *out)
@@ -257,23 +258,10 @@ int main(int argc, char **argv)
 	sigaddset(&sset, SIGUSR1);
 	sigprocmask(SIG_UNBLOCK, &sset, NULL);
 
-
-	struct powgov_runtime *runtime = (struct powgov_runtime *) calloc(1, sizeof(struct powgov_runtime));;
-	runtime->sys = (struct powgov_sysconfig *) calloc(1, sizeof(struct powgov_sysconfig));
-	runtime->files = (struct powgov_files *) calloc(1, sizeof(struct powgov_files));
-	runtime->sampler = (struct powgov_sampler *) calloc(1, sizeof(struct powgov_sampler));
-	runtime->sampler->samplectrs = (unsigned long *) calloc(runtime->cfg->threadcount, sizeof(unsigned long));
-	runtime->sampler->l1 = (struct powgov_l1 *) calloc(1, sizeof(struct powgov_l1));
-	runtime->sampler->l2 = (struct powgov_l2 *) calloc(1, sizeof(struct powgov_l2));
-	runtime->sampler->l3 = (struct powgov_l3 *) calloc(1, sizeof(struct powgov_l3));
-	runtime->classifier = (struct powgov_classifier *) calloc(1, sizeof(struct powgov_classifier));
-	runtime->power = (struct powgov_power *) calloc(1, sizeof(struct powgov_power));
+	// initialize runtime configuration
+	struct powgov_runtime *runtime = (struct powgov_runtime *) calloc(1,
+			sizeof(struct powgov_runtime));
 	runtime->cfg = (struct powgov_config *) calloc(1, sizeof(struct powgov_config));
-	// initialize power governor configurization
-	runtime->sampler->total_samples = 0;
-	runtime->sampler->sps = 500; // -r for "rate"
-	runtime->classifier->dist_thresh = 0.25;
-	runtime->classifier->pct_thresh = 0.01;
 	runtime->cfg->man_cpu_ctrl = 1; // -s for "system control"
 	runtime->cfg->threadcount = 1;
 	runtime->cfg->experimental = 0; // -e for experimental
@@ -286,9 +274,27 @@ int main(int argc, char **argv)
 	runtime->cfg->frq_change_step = 0.1;
 	runtime->cfg->throttle_avoid = 1;
 
+	runtime->sys = (struct powgov_sysconfig *) calloc(1, sizeof(struct powgov_sysconfig));
+	runtime->files = (struct powgov_files *) calloc(1, sizeof(struct powgov_files));
+	runtime->sampler = (struct powgov_sampler *) calloc(1, sizeof(struct powgov_sampler));
+	runtime->sampler->samplectrs = (unsigned long *) calloc(runtime->cfg->threadcount,
+			sizeof(unsigned long));
+	runtime->sampler->l1 = (struct powgov_l1 *) calloc(1, sizeof(struct powgov_l1));
+	runtime->sampler->l2 = (struct powgov_l2 *) calloc(1, sizeof(struct powgov_l2));
+	runtime->sampler->l3 = (struct powgov_l3 *) calloc(1, sizeof(struct powgov_l3));
+	runtime->classifier = (struct powgov_classifier *) calloc(1,
+			sizeof(struct powgov_classifier));
+	runtime->power = (struct powgov_power *) calloc(1, sizeof(struct powgov_power));
+	// initialize power governor configurization
+	runtime->sampler->total_samples = 0;
+	runtime->sampler->sps = 500; // -r for "rate"
+	runtime->classifier->dist_thresh = 0.25;
+	runtime->classifier->pct_thresh = 0.01;
+	
 	// TODO: sampling should just dump every x seconds
 	VERBOSE = 0; // -v for "verbose"
 	REPORT = 0; // -R for report
+
 	// TODO: these should be read in from a file
 	// these are the values at 800MHz, linear regression model based on frequency is used
 	// cpu phase
@@ -502,8 +508,7 @@ int main(int argc, char **argv)
 	runtime->sampler->l3->scalability = 0.0;
 	runtime->power->excursion = 0;
 	runtime->sampler->l3->seq_end = -1;
-	memset(runtime->sampler->l3->sequence, -1, MAX_L3_SEQ * sizeof(unsigned char));
-	memset(runtime->sampler->l3->seq_cycles, 0, MAX_L3_SEQ * sizeof(uint64_t));
+	memset(runtime->sampler->l3->sequence, 0, MAX_L3_SEQ * sizeof(struct phase_profile));
 
 
 	// print verbose descriptions to stdout
@@ -571,7 +576,7 @@ int main(int argc, char **argv)
 			write_msr_by_coord(0, 0, 0, IA32_PERF_GLOBAL_OVF_CTRL, ovf_ctrl & 0xFFFFFFFFFFFFFFFE);
 			ovf_ctr++;
 		}
-		pow_aware_perf(runtime);
+		l1_analysis(runtime);
 		usleep(srate);
 	}
 	gettimeofday(&current, NULL);

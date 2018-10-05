@@ -5,6 +5,7 @@
 #include "powgov_l2.h"
 #include "powgov_l3.h"
 #include "msr_counters.h"
+#include "master.h"
 
 int sample_data(struct powgov_runtime *runtime)
 {
@@ -18,15 +19,19 @@ int sample_data(struct powgov_runtime *runtime)
 	uint64_t perf;
 	uint64_t tsc;
 	uint64_t energy;
-	uint64_t rapl_throttled;
+	/* uint64_t rapl_throttled; */
 	uint64_t therm;
 	uint64_t perflimit;
 	uint64_t instret;
+	uint64_t aperf;
+	uint64_t mperf;
 	static char firstread = 1;
 	struct pmc *pmcounters;
 	pmc_storage(&pmcounters);
 	read_msr_by_coord(0, core, 0, IA32_PERF_STATUS, &perf);
 	read_msr_by_coord(0, core, 0, IA32_TIME_STAMP_COUNTER, &tsc);
+	read_msr_by_coord(0, core, 0, MSR_IA32_APERF, &aperf);
+	read_msr_by_coord(0, core, 0, MSR_IA32_MPERF, &mperf);
 	read_msr_by_coord(0, core, 0, MSR_PKG_ENERGY_STATUS, &energy);
 	//read_msr_by_coord(0, core, 0, MSR_PKG_PERF_STATUS, &rapl_throttled);
 	read_msr_by_coord(0, core, 0, IA32_THERM_STATUS, &therm);
@@ -39,8 +44,10 @@ int sample_data(struct powgov_runtime *runtime)
 		runtime->sampler->l1->prev_sample = runtime->sampler->l1->new_sample;
 		runtime->sampler->thread_samples[core][idx].frq_data = perf;
 		runtime->sampler->thread_samples[core][idx].tsc_data = tsc;
+		runtime->sampler->thread_samples[core][idx].aperf = aperf;
+		runtime->sampler->thread_samples[core][idx].mperf = mperf;
 		runtime->sampler->thread_samples[core][idx].energy_data = energy & 0xFFFFFFFF;
-		runtime->sampler->thread_samples[core][idx].rapl_throttled = rapl_throttled & 0xFFFFFFFF;
+		/* runtime->sampler->thread_samples[core][idx].rapl_throttled = rapl_throttled & 0xFFFFFFFF; */
 		runtime->sampler->thread_samples[core][idx].therm = therm;
 		runtime->sampler->thread_samples[core][idx].perflimit = perflimit;
 		runtime->sampler->thread_samples[core][idx].instret = instret;
@@ -62,7 +69,7 @@ int sample_data(struct powgov_runtime *runtime)
 		runtime->sampler->l1->new_sample.frq_data = perf;
 		runtime->sampler->l1->new_sample.tsc_data = tsc;
 		runtime->sampler->l1->new_sample.energy_data = energy & 0xFFFFFFFF;
-		runtime->sampler->l1->new_sample.rapl_throttled = rapl_throttled & 0xFFFFFFFF;
+		/* runtime->sampler->l1->new_sample.rapl_throttled = rapl_throttled & 0xFFFFFFFF; */
 		runtime->sampler->l1->new_sample.therm = therm;
 		runtime->sampler->l1->new_sample.perflimit = perflimit;
 		runtime->sampler->l1->new_sample.instret = instret;
@@ -76,7 +83,7 @@ int sample_data(struct powgov_runtime *runtime)
 		runtime->sampler->first_sample = runtime->sampler->l1->new_sample;
 		runtime->sampler->l2->new_sample = runtime->sampler->first_sample;
 		runtime->sampler->l3->new_sample = runtime->sampler->first_sample;
-		runtime->sampler->l3->last_cyc = runtime->sampler->l1->new_sample.tsc_data;
+		/* runtime->sampler->l3->last_cyc = runtime->sampler->l1->new_sample.tsc_data; */
 		firstread = 0;
 	}
 	if (runtime->sampler->total_samples % runtime->sampler->l2->interval == 0)

@@ -2,7 +2,6 @@
 #include "powgov.h"
 #define MAX_PROFILES 20
 #define NUM_CLASSES 4
-#define RECLASSIFY_INTERVAL 20
 #define SCALE_OUTLIER_THRESH_LOW 0.8
 #define SCALE_OUTLIER_THRESH_HIGH 1.2
 #define SCALE_THRESH 1.0 // 100MHz
@@ -32,27 +31,53 @@ enum CLASS_ID
 	CLASS_UNKNOWN,
 };
 
-struct phase_profile
+/*
+struct workload_profile
 {
 	// these are all AVERAGES
-	double ipc; // instructions/cycle measured for this phase
-	double mpc; // LLC miss/cycle measured for this phase
-	double rpc; // resource stalls/cycle measured for this phase
-	double epc; // execution stalls/cycle measured for this phase
-	double bpc; // branch instructions/cycle measured for this phase
+	double ipc; // instructions/cycle measured for this workload
+	double mpc; // LLC miss/cycle measured for this workload
+	double rpc; // resource stalls/cycle measured for this workload
+	double epc; // execution stalls/cycle measured for this workload
+	double bpc; // branch instructions/cycle measured for this workload
 
-	double avg_frq; // average frequency measured for this phase
-	uint16_t frq_high; // max frequency measured for this phase
-	uint16_t frq_low; // min frequency measured for this phase
-	double frq_target; // what frequency in *100MHz the algorithm thinks phase should run at
-	double avg_cycle; // average number of cycles it takes to execute this phase
-	uint32_t num_throttles; // number of times this phase was throttled last time (aka misprediction)
-	uint64_t occurrences; // how many times this phase was detected
+	double avg_frq; // average frequency measured for this workload
+	uint16_t frq_high; // max frequency measured for this workload
+	uint16_t frq_low; // min frequency measured for this workload
+	double frq_target; // what frequency in *100MHz the algorithm thinks workload should run at
+	double avg_cycle; // average number of cycles it takes to execute this workload
+	uint32_t num_throttles; // number of times this workload was throttled last time (aka misprediction)
+	uint64_t occurrences; // how many times this workload was detected
+	uint64_t phase_occurrences; // how many times this phase occurred
 	char lastprev;
 	char class;
 	char unthrot_count;
 	char reclass_count;
 	char frq_duty_count;
+};
+*/
+
+struct workload_profile
+{
+	// these are all AVERAGES
+	double ipc; // instructions/cycle measured for this workload
+	double mpc; // LLC miss/cycle measured for this workload
+	double rpc; // resource stalls/cycle measured for this workload
+	double epc; // execution stalls/cycle measured for this workload
+	double bpc; // branch instructions/cycle measured for this workload
+	double frq; // average frequency measured for this workload
+	double frq_target; // the frequency being used for this workload
+	uint64_t occurrences; // how many times this workload has occurred sequentially
+	char class; // what class is the current workload (cpu, mem, etc)
+	char unthrottle_cycles; // how many cycles has the workload gone unthrottled
+	char frq_duty_count; // used to duty cycle the processor frequency to 10's of MHz
+};
+
+struct phase_profile
+{
+	struct workload_profile workload;
+	double cycles;
+	unsigned short phase_occurrences;
 };
 
 struct powgov_classifier
@@ -60,25 +85,23 @@ struct powgov_classifier
 	double dist_thresh; // the threshold for profile cluster identification
 	double pct_thresh; // the threshold for displaying dumped profiles as execution percent
 	int numphases; // the current number of phases
-	struct phase_profile profiles[MAX_PROFILES]; // the cluster centers
+	struct phase_profile phases[MAX_PROFILES]; // the cluster centers
 	//float transition_table[MAX_PROFILES][MAX_PROFILES]; // phase transition matrix
-	struct phase_profile prof_maximums; // minimum sampled values used for scaling and normalization
-	struct phase_profile prof_minimums; // minimum sampled values used for scaling and normalization
-	struct phase_profile prof_class[NUM_CLASSES]; // pre-computed values for various classes of workload
+	struct workload_profile prof_maximums; // minimum sampled values used for scaling and normalization
+	struct workload_profile prof_minimums; // minimum sampled values used for scaling and normalization
+	struct workload_profile prof_class[NUM_CLASSES]; // pre-computed values for various classes of workload
 	int recentphase;
 	double mem_freq_throttle;
 };
 
 
-double metric_distance(struct phase_profile *old, struct phase_profile *new, struct phase_profile *maximums, struct phase_profile *minimums);
+double workload_metric_distance(struct workload_profile *old, struct workload_profile *new, struct workload_profile *maximums, struct workload_profile *minimums);
 void agglomerate_profiles(struct powgov_runtime *runtime);
 void remove_unused(struct powgov_runtime *runtime);
-void update_minmax(struct phase_profile *this_profile, struct phase_profile *maximums, 
-		struct phase_profile *minimums);
-void print_profile(struct phase_profile *prof);
-void update_profile(struct powgov_runtime *runtime, struct phase_profile *this_profile, int profidx, uint64_t perf, unsigned this_throttle, double avgfrq, int lastphase);
-void add_profile(struct powgov_runtime *runtime, struct phase_profile *this_profile, uint64_t perf, unsigned this_throttle, double avgfrq, int lastphase);
-int classify_phase(struct powgov_runtime *runtime, struct phase_profile *phase, uint64_t perf);
-void classify_and_react(struct powgov_runtime *runtime, int phase, char wasthrottled, uint64_t perf);
-double ipc_scale(double ipc_unscaled, double frq_source, double frq_target);
-void frequency_scale_phase(struct phase_profile *unscaled_profile, double frq_source, double frq_target, struct phase_profile *scaled_profile);
+void update_minmax(struct workload_profile *this_profile, struct workload_profile *maximums, 
+		struct workload_profile *minimums);
+void print_profile(struct workload_profile *prof);
+void update_profile(struct powgov_runtime *runtime, struct workload_profile *this_profile, struct workload_profile *prof, uint64_t perf, double avgfrq);
+void add_profile(struct powgov_runtime *runtime, struct workload_profile *this_profile, uint64_t perf, double avgfrq);
+int classify_workload(struct powgov_runtime *runtime, struct workload_profile *phase, uint64_t perf);
+void frequency_scale_phase(struct workload_profile *unscaled_profile, double frq_source, double frq_target, struct workload_profile *scaled_profile);
