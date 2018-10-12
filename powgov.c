@@ -39,21 +39,21 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 {
 	int i;
 	uint64_t recorded_steps = 0;
-	struct workload_profile *profiles = runtime->classifier->profiles;
+	struct phase_profile *phases = runtime->classifier->phases;
 	for (i = 0; i < runtime->classifier->numphases; i++)
 	{
-		recorded_steps += profiles[i].occurrences;
+		recorded_steps += phases[i].workload.occurrences;
 	}
 	double totaltime = 0.0;
 	double totalpct = 0.0;
 	for (i = 0; i < runtime->classifier->numphases; i++)
 	{
-		double pct = (double) profiles[i].occurrences / (double) recorded_steps;
+		double pct = (double) phases[i].workload.occurrences / (double) recorded_steps;
 		if (avgrate != NULL)
 		{
 			fprintf(outfile, "PHASE ID %d\t %.3lf seconds\t(%3.2lf%%)\n", i, *avgrate *
-					profiles[i].occurrences, pct * 100.0);
-			totaltime += *avgrate * profiles[i].occurrences;
+					phases[i].workload.occurrences, pct * 100.0);
+			totaltime += *avgrate * phases[i].workload.occurrences;
 			//totalpct += pct * 100.0;
 		}
 	}
@@ -62,20 +62,11 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 		totalpct = (double) recorded_steps / (double) runtime->sampler->samplectrs[0];
 		fprintf(outfile, "TOTAL\t\t%.2lf\t(%3.2lf%% accounted)\n", totaltime, totalpct * 100.0);
 	}
-	fprintf(outfile, "min instructions per cycle        %lf\n", runtime->classifier->prof_minimums.ipc);
-	fprintf(outfile, "min LLC misses per cycle          %lf\n", runtime->classifier->prof_minimums.mpc);
-	fprintf(outfile, "min resource stalls per cycle     %lf\n", runtime->classifier->prof_minimums.rpc);
-	fprintf(outfile, "min execution stalls per cycle    %lf\n", runtime->classifier->prof_minimums.epc);
-	fprintf(outfile, "min branch instructions per cycle %lf\n", runtime->classifier->prof_minimums.bpc);
-	fprintf(outfile, "max instructions per cycle        %lf\n", runtime->classifier->prof_maximums.ipc);
-	fprintf(outfile, "max LLC misses per cycle          %lf\n", runtime->classifier->prof_maximums.mpc);
-	fprintf(outfile, "max resource stalls per cycle     %lf\n", runtime->classifier->prof_maximums.rpc);
-	fprintf(outfile, "max execution stalls per cycle    %lf\n", runtime->classifier->prof_maximums.epc);
-	fprintf(outfile, "max branch instructions per cycle %lf\n", runtime->classifier->prof_maximums.bpc);
+	
 	for (i = 0; i < runtime->classifier->numphases; i++)
 	{
 		// ignore phases that are less than x% of program
-		double pct = (double) profiles[i].occurrences / (double) recorded_steps;
+		double pct = (double) phases[i].workload.occurrences / (double) recorded_steps;
 		if (pct < runtime->classifier->pct_thresh)
 		{
 			continue;
@@ -83,37 +74,32 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 		if (avgrate != NULL)
 		{
 			fprintf(outfile, "\nPHASE ID %d\t %.3lf seconds\t(%3.2lf%%)\n", i, *avgrate *
-					profiles[i].occurrences, pct * 100.0);
+					phases[i].workload.occurrences, pct * 100.0);
 		}
 		else
 		{
 			fprintf(outfile, "\nPHASE ID %d\t(%3.0lf%%)\n", i, pct * 100);
 		}
-		fprintf(outfile, "\tinstructions per cycle        %lf\n", profiles[i].ipc);
-		fprintf(outfile, "\tLLC misses per cycle          %lf\n", profiles[i].mpc);
-		fprintf(outfile, "\tresource stalls per cycle     %lf\n", profiles[i].rpc);
-		fprintf(outfile, "\texecution stalls per cycle    %lf\n", profiles[i].epc);
-		fprintf(outfile, "\tbranch instructions per cycle %lf\n", profiles[i].bpc);
-		fprintf(outfile, "\tphase occurrences             %lu\n\tprev phase id's:", profiles[i].occurrences);
+		fprintf(outfile, "\tinstructions per cycle        %lf\n", phases[i].workload.ipc);
+		fprintf(outfile, "\tLLC misses per cycle          %lf\n", phases[i].workload.mpc);
+		fprintf(outfile, "\tresource stalls per cycle     %lf\n", phases[i].workload.rpc);
+		fprintf(outfile, "\texecution stalls per cycle    %lf\n", phases[i].workload.epc);
+		fprintf(outfile, "\tbranch instructions per cycle %lf\n", phases[i].workload.bpc);
+		fprintf(outfile, "\tphase occurrences             %lu\n\tprev phase id's:", phases[i].workload.occurrences);
 		
-		fprintf(outfile, "\n\tavg frq     %lf\n", profiles[i].avg_frq / 10.0);
-		fprintf(outfile, "\tfrq low       %x\n", profiles[i].frq_low);
-		fprintf(outfile, "\tfrq high      %x\n", profiles[i].frq_high);
-		fprintf(outfile, "\tfrq target    %lf\n", profiles[i].frq_target / 10.0);
-		fprintf(outfile, "\tavg cycles    %lf (%lf seconds)\n", profiles[i].avg_cycle,
-				profiles[i].avg_cycle / (profiles[i].avg_frq * 1000000000.0 / 10.0)); //div by 10 because freq 100MHz
-		fprintf(outfile, "\tnum throttles %u\n", profiles[i].num_throttles);
-		fprintf(outfile, "\tclass %s\n", CLASS_NAMES[(int)profiles[i].class]);
+		fprintf(outfile, "\n\tfrequency     %lf\n", phases[i].workload.frq / 10.0);
+		fprintf(outfile, "\tfrq target    %lf\n", phases[i].workload.frq_target / 10.0);
+		fprintf(outfile, "\tclass %s\n", CLASS_NAMES[(int)phases[i].workload.class]);
 
 		int j;
 		for (j = 0; j < runtime->classifier->numphases; j++)
 		{
-			double lpct = (double) profiles[j].occurrences / (double) recorded_steps;
+			double lpct = (double) phases[j].workload.occurrences / (double) recorded_steps;
 			if (lpct > runtime->classifier->pct_thresh)
 			{
 				struct workload_profile scaled_profile;
-				frequency_scale_phase(&profiles[j], profiles[j].avg_frq, profiles[i].avg_frq, &scaled_profile);
-				double dist = metric_distance(&scaled_profile, &profiles[i], &runtime->classifier->prof_maximums, &runtime->classifier->prof_minimums);
+				frequency_scale_phase(&phases[j].workload, phases[j].workload.frq, phases[i].workload.frq, &scaled_profile);
+				double dist = workload_metric_distance(&scaled_profile, &phases[i].workload, &runtime->classifier->prof_maximums);
 				fprintf(outfile, "\tdistance from %d: %lf\n", j, dist);
 			}
 		}
@@ -282,6 +268,7 @@ int main(int argc, char **argv)
 	runtime->sampler->l1 = (struct powgov_l1 *) calloc(1, sizeof(struct powgov_l1));
 	runtime->sampler->l2 = (struct powgov_l2 *) calloc(1, sizeof(struct powgov_l2));
 	runtime->sampler->l3 = (struct powgov_l3 *) calloc(1, sizeof(struct powgov_l3));
+	memset(runtime->sampler->l3->graph, 0, MAX_L3_GRAPH * sizeof(struct l3_graph_node));
 	runtime->classifier = (struct powgov_classifier *) calloc(1,
 			sizeof(struct powgov_classifier));
 	runtime->power = (struct powgov_power *) calloc(1, sizeof(struct powgov_power));
@@ -321,12 +308,11 @@ int main(int argc, char **argv)
 	runtime->classifier->prof_class[3].rpc = 0.06;
 	runtime->classifier->prof_class[3].epc = 0.25;
 	runtime->classifier->prof_class[3].bpc = 0.005;
-	// minimum values
-	runtime->classifier->prof_minimums.ipc = DBL_MAX;
-	runtime->classifier->prof_minimums.mpc = DBL_MAX;
-	runtime->classifier->prof_minimums.rpc = DBL_MAX;
-	runtime->classifier->prof_minimums.epc = DBL_MAX;
-	runtime->classifier->prof_minimums.bpc = DBL_MAX;
+	// TODO: temporary solution
+	frequency_scale_phase(&runtime->classifier->prof_class[0], 0.8, 4.5, 
+			&runtime->classifier->prof_maximums);
+	printf("\nDEBUG prof_maximums:\n");
+	print_profile(&runtime->classifier->prof_maximums);
 
 
 	// lookup processor information with CPUID
@@ -505,10 +491,9 @@ int main(int argc, char **argv)
 	runtime->sampler->l2->interval = (unsigned) (runtime->power->window * 1000.0);
 	runtime->sampler->l3->interval = runtime->sampler->sps;
 	runtime->sampler->l3->baseline_ipc = 0.0;
-	runtime->sampler->l3->scalability = 0.0;
+	runtime->sampler->l3->minimum_cycles = DBL_MAX;
+	runtime->sampler->l3->maximum_cycles = -1.0;
 	runtime->power->excursion = 0;
-	runtime->sampler->l3->seq_end = -1;
-	memset(runtime->sampler->l3->sequence, 0, MAX_L3_SEQ * sizeof(struct phase_profile));
 
 
 	// print verbose descriptions to stdout
@@ -631,8 +616,8 @@ int main(int argc, char **argv)
 		snprintf((char *) fname, FNAMESIZE, "powgov_profiles");
 		runtime->files->profout = fopen(fname, "w");
 		// TODO: figure out if miscounts from remove_unused or something else (fixed?)
-		remove_unused(runtime);
-		agglomerate_profiles(runtime);
+		//remove_unused(runtime);
+		//agglomerate_profiles(runtime);
 		dump_phaseinfo(runtime, runtime->files->profout, &avgrate);
 		int j;
 		for (j = 0; j < runtime->sys->num_cpu; j++)

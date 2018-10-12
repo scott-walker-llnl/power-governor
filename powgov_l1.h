@@ -1,5 +1,6 @@
 #pragma once
 #include "powgov.h"
+#include "powgov_profiles.h"
 
 #define LIMIT_LOG_RAPL 0xC000000
 #define LIMIT_LOG_MASK 0xF3FFFFFF
@@ -17,11 +18,12 @@ struct powgov_l1
 	struct data_sample prev_sample;
 	struct data_sample phase_begin;
 	unsigned long interval;
-	struct worload_profile current_workload;
+	struct workload_profile current_workload;
 };
 
 void l1_analysis(struct powgov_runtime *runtime);
 void update_current_workload(struct powgov_runtime *runtime, struct workload_profile * prof);
 int branch_same_workload(struct powgov_runtime *runtime, struct workload_profile *this_profile);
-int branch_change_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile);
-void react_to_workload(struct powgov_runtime *runtime, struct workload_profile *profile);
+int branch_change_workload(struct powgov_runtime *runtime, struct workload_profile *this_profile);
+void react_to_workload(struct powgov_runtime *runtime);
+void update_minmax_cycles(struct powgov_runtime *runtime, double cycles);

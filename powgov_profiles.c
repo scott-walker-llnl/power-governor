@@ -8,29 +8,34 @@
 #include "powgov_l3.h"
 // TODO: occurrences does not mean the same thing anymore, re-work weighted averages
 
-double workload_metric_distance(struct workload_profile *old, struct workload_profile *new, struct workload_profile *maximums, struct workload_profile *minimums)
+double workload_metric_distance(struct workload_profile *old, struct workload_profile *new, struct workload_profile *maximums)
 {
-	double ipcnorm = ((old->ipc - minimums->ipc) / (maximums->ipc - minimums->ipc)) -
-		((new->ipc - minimums->ipc) / (maximums->ipc - minimums->ipc));
+	double ipcnorm = ((old->ipc - 0.0) / (maximums->ipc - 0.0)) -
+		((new->ipc - 0.0) / (maximums->ipc - 0.0));
 
-	double epcnorm = ((old->epc - minimums->epc) / (maximums->epc - minimums->epc)) -
-		((new->epc - minimums->epc) / (maximums->epc - minimums->epc));
+	double epcnorm = ((old->epc - 0.0) / (maximums->epc - 0.0)) -
+		((new->epc - 0.0) / (maximums->epc - 0.0));
 	//return sqrt(pow(ipcnorm, 2.0) + pow(mpcnorm, 2.0) + pow(rpcnorm, 2.0) + pow(epcnorm, 2.0) + pow(bpcnorm, 2.0));
 	return sqrt(pow(ipcnorm, 2.0) + pow(epcnorm, 2.0));
 }
 
-double phase_metric_distance(struct phase_profile *old, struct phase_profile *new, struct workload_profile *maximums, struct workload_profile *minimums)
+double phase_metric_distance(struct phase_profile *old, struct phase_profile *new, struct workload_profile *maximums, double minimum_cycles, double maximum_cycles)
 {
-	double ipcnorm = ((old->ipc - minimums->ipc) / (maximums->ipc - minimums->ipc)) -
-		((new->ipc - minimums->ipc) / (maximums->ipc - minimums->ipc));
+	// TODO
+	double ipcnorm = ((old->workload.ipc - 0.0) / (maximums->ipc - 0.0)) -
+		((new->workload.ipc - 0.0) / (maximums->ipc - 0.0));
 
-	double epcnorm = ((old->epc - minimums->epc) / (maximums->epc - minimums->epc)) -
-		((new->epc - minimums->epc) / (maximums->epc - minimums->epc));
-	//return sqrt(pow(ipcnorm, 2.0) + pow(mpcnorm, 2.0) + pow(rpcnorm, 2.0) + pow(epcnorm, 2.0) + pow(bpcnorm, 2.0));
-	return sqrt(pow(ipcnorm, 2.0) + pow(epcnorm, 2.0));
+	double epcnorm = ((old->workload.epc - 0.0) / (maximums->epc - 0.0)) -
+		((new->workload.epc - 0.0) / (maximums->epc - 0.0));
+
+	double cyclesnorm = ((old->cycles - minimum_cycles) / (maximum_cycles - minimum_cycles)) -
+		((new->cycles - minimum_cycles) / (maximum_cycles - minimum_cycles));
+
+	return sqrt(pow(ipcnorm, 2.0) + pow(epcnorm, 2.0) + pow(cyclesnorm, 2.0));
 }
 
 // TODO: weighted averaging should scale first
+/*
 void agglomerate_profiles(struct powgov_runtime *runtime)
 {
 	struct workload_profile old_profiles[MAX_PROFILES];
@@ -119,8 +124,8 @@ void agglomerate_profiles(struct powgov_runtime *runtime)
 							(scaled_profile.occurrences / (double) occurrence_sum);
 					profiles[newidx].num_throttles += scaled_profile.num_throttles *
 							(scaled_profile.occurrences / (double) occurrence_sum);
-					/* profiles[newidx].avg_cycle += scaled_profile.avg_cycle * */
-					/* 		(scaled_profile.occurrences / (double) occurrence_sum); */
+					//profiles[newidx].avg_cycle += scaled_profile.avg_cycle *
+					//		(scaled_profile.occurrences / (double) occurrence_sum);
 
 					if (scaled_profile.frq_high > profiles[newidx].frq_high)
 					{
@@ -137,7 +142,7 @@ void agglomerate_profiles(struct powgov_runtime *runtime)
 			}
 			// TODO: instead of clearing, update prev_phases
 			profiles[newidx].lastprev = 0;
-			/* memset(profiles[newidx].prev_phases, -1, MAX_HISTORY); */
+			//memset(profiles[newidx].prev_phases, -1, MAX_HISTORY);
 			newidx++;
 		}
 	}
@@ -160,7 +165,7 @@ void agglomerate_profiles(struct powgov_runtime *runtime)
 				}
 				memcpy(&profiles[newidx], &old_profiles[i], sizeof(struct workload_profile));
 				runtime->classifier->profiles[newidx].lastprev = 0;
-				/* memset(profiles[newidx].prev_phases, -1, MAX_HISTORY); */
+				//memset(profiles[newidx].prev_phases, -1, MAX_HISTORY);
 
 				newidx++;
 			}
@@ -169,7 +174,9 @@ void agglomerate_profiles(struct powgov_runtime *runtime)
 	}
 	//printf("(glom) runtime->classifier->recentphase is now %d\n", runtime->classifier->recentphase);
 }
+*/
 
+/*
 void remove_unused(struct powgov_runtime *runtime)
 {
 	if (runtime->classifier->numphases <= 0)
@@ -200,16 +207,14 @@ void remove_unused(struct powgov_runtime *runtime)
 			}
 		}
 	}
-	/*
-	for (i = 0; i < runtime->classifier->numphases; i++)
-	{
-		if (old_profiles[i].occurrences / (double) occurrence_sum < PRUNE_THRESH)
-		{
-			valid[i] = 0;
-			numinvalid++;
-		}
-	}
-	*/
+	//for (i = 0; i < runtime->classifier->numphases; i++)
+	//{
+	//	if (old_profiles[i].occurrences / (double) occurrence_sum < PRUNE_THRESH)
+	//	{
+	//		valid[i] = 0;
+	//		numinvalid++;
+	//	}
+	//}
 	if (numinvalid == 0)
 	{
 		return;
@@ -242,8 +247,21 @@ void remove_unused(struct powgov_runtime *runtime)
 	//printf("(remove) runtime->classifier->numphases is now %d\n", runtime->classifier->numphases);
 	//printf("(remove) runtime->classifier->recentphase is now %d\n", runtime->classifier->recentphase);
 }
+*/
 
-void update_minmax(struct powgov_runtime *runtime, struct workload_profile *this_profile)
+void update_minmax_cycles(struct powgov_runtime *runtime, double cycles)
+{
+	if (cycles < runtime->sampler->l3->minimum_cycles)
+	{
+		runtime->sampler->l3->minimum_cycles = cycles;
+	}
+	if (cycles > runtime->sampler->l3->maximum_cycles)
+	{
+		runtime->sampler->l3->maximum_cycles = cycles;
+	}
+}
+
+void update_max(struct powgov_runtime *runtime, struct workload_profile *this_profile)
 {
 	if (this_profile->ipc > runtime->classifier->prof_maximums.ipc)
 	{
@@ -265,85 +283,20 @@ void update_minmax(struct powgov_runtime *runtime, struct workload_profile *this
 	{
 		runtime->classifier->prof_maximums.bpc = this_profile->bpc;
 	}
-
-	if (this_profile->ipc < runtime->classifier->prof_minimums.ipc)
-	{
-		runtime->classifier->prof_minimums.ipc = this_profile->ipc;
-	}
-	if (this_profile->mpc < runtime->classifier->prof_minimums.mpc)
-	{
-		runtime->classifier->prof_minimums.mpc = this_profile->mpc;
-	}
-	if (this_profile->rpc < runtime->classifier->prof_minimums.rpc)
-	{
-		runtime->classifier->prof_minimums.rpc = this_profile->rpc;
-	}
-	if (this_profile->epc < runtime->classifier->prof_minimums.epc)
-	{
-		runtime->classifier->prof_minimums.epc = this_profile->epc;
-	}
-	if (this_profile->bpc < runtime->classifier->prof_minimums.bpc)
-	{
-		runtime->classifier->prof_minimums.bpc = this_profile->bpc;
-	}
 }
 
 void print_profile(struct workload_profile *prof)
 {
-	printf("ipc: %lf\nmpc %lf\nrpc %lf\nepc %lf\nbpc %lf\n", prof->ipc, prof->mpc,
-			prof->rpc, prof->epc, prof->bpc);
+	printf("ipc: %lf\nmpc %lf\nrpc %lf\nepc %lf\nbpc %lf\nfrq %lf\nocc %lu\n", prof->ipc,
+			prof->mpc, prof->rpc, prof->epc, prof->bpc, prof->frq, prof->occurrences);
 }
 
-void update_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, struct phase_profile *prof, double phase_cycles)
-{
-	prof->phase_occurrences++;
-	uint64_t prev_occurrences = prof->workload.occurrences;
-	uint64_t new_occurrences = this_profile->occurrences;
-
-	prof->workload.occurrences = prev_occurrences + new_occurrences;
-	prof->workload.num_throttles += this_profile->num_throttles;
-
-	prof->workload.ipc = (prof->workload.ipc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->ipc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.mpc = (prof->workload.mpc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->mpc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.rpc = (prof->workload.rpc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->rpc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.epc = (prof->workload.epc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->epc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.bpc = (prof->workload.bpc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->bpc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.frq = (prof->workload.frq *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->frq * (new_occurrences / prof->workload.occurrences));
-
-	prof->cycles = (prof->cycles * (prof->phase_occurrences - 1.0) +
-			phase_cycles * (1.0 / prof->phase_occurrences));
-}
-
-void add_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, double phase_cycles)
-{
-	struct phase_profile *newphase = 
-		runtime->classifier->phases[runtime->classifier->numphases];
-
-	newphase->workload = this_profile;
-	newphase->cycles = phase_cycles;
-	newphase->phase_occurrences = 1;
-
-	runtime->classifier->numphases++;
-}
-
-int classify_workload(struct powgov_runtime *runtime, struct workload_profile *phase, uint64_t perf)
+int classify_workload(struct powgov_runtime *runtime, struct workload_profile *workload)
 {
 	int i = -1;
 	int minidx = -1;
 	double mindist = DBL_MAX;
-	double freq = ((double) perf) / 10.0;
+	double freq = ((double) workload->frq) / 10.0;
 	struct workload_profile *prof_class = runtime->classifier->prof_class;
 	prof_class[0].ipc = freq * CLASS_CPU_SLOPE_IPC + CLASS_CPU_INTERCEPT_IPC;
 	prof_class[0].epc = freq * CLASS_CPU_SLOPE_EPC + CLASS_CPU_INTERCEPT_EPC;
@@ -354,20 +307,19 @@ int classify_workload(struct powgov_runtime *runtime, struct workload_profile *p
 	prof_class[3].epc = freq * CLASS_MIX_SLOPE_EPC + CLASS_MIX_INTERCEPT_EPC;
 	for (i = 0; i < NUM_CLASSES; i++)
 	{
-		double dist = metric_distance(phase, &prof_class[i], &runtime->classifier->prof_maximums, &runtime->classifier->prof_minimums);
+		double dist = workload_metric_distance(workload, &prof_class[i], &runtime->classifier->prof_maximums);
 		if (dist < mindist)
 		{
 			mindist = dist;
 			minidx = i;
 		}
 	}
-	phase->class = minidx;
-	phase->reclass_count = 0;
+	workload->class = minidx;
 #ifdef DEBUG
-	if (phase->epc > 2.5)
+	if (workload->epc > 2.5)
 	{
-		printf("CLASS %d freq %lf\n", phase->class, freq);
-		printf("phase ipc %lf epc %lf\n", phase->ipc, phase->epc);
+		printf("CLASS %d freq %lf\n", workload->class, freq);
+		printf("workload ipc %lf epc %lf\n", workload->ipc, workload->epc);
 		printf("cpu scale ipc %lf epc %lf\n", prof_class[0].ipc, prof_class[0].epc);
 		printf("mem scale ipc %lf epc %lf\n", prof_class[1].ipc, prof_class[1].epc);
 		printf("mix scale ipc %lf epc %lf\n", prof_class[2].ipc, prof_class[2].epc);

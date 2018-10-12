@@ -83,6 +83,7 @@ int sample_data(struct powgov_runtime *runtime)
 		runtime->sampler->first_sample = runtime->sampler->l1->new_sample;
 		runtime->sampler->l2->new_sample = runtime->sampler->first_sample;
 		runtime->sampler->l3->new_sample = runtime->sampler->first_sample;
+		runtime->sampler->l1->prev_sample = runtime->sampler->l1->new_sample;
 		/* runtime->sampler->l3->last_cyc = runtime->sampler->l1->new_sample.tsc_data; */
 		firstread = 0;
 	}
