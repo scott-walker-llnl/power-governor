@@ -24,12 +24,8 @@ struct powgov_l3
 	struct l3_graph_node graph[MAX_L3_GRAPH];
 	struct phase_profile *predicted_phase;
 	struct l3_graph_node *current_node;
-	double minimum_cycles;
-	double maximum_cycles;
 };
 
 void l3_analysis(struct powgov_runtime *runtime);
-struct phase_profile *update_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, struct phase_profile *prof, double phase_cycles);
-struct phase_profile *add_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, double phase_cycles);
 void add_graph_node(struct powgov_runtime *runtime, struct phase_profile *new_phase);
 void update_graph_node(struct powgov_runtime *runtime, struct phase_profile *updated_phase);

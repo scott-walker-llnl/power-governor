@@ -38,10 +38,10 @@ int sample_data(struct powgov_runtime *runtime)
 	read_msr_by_coord(0, core, 0, IA32_FIXED_CTR0, &instret);
 	read_msr_by_coord(0, core, 0, MSR_CORE_PERF_LIMIT_REASONS, &perflimit);
 	read_batch(COUNTERS_DATA);
+	runtime->sampler->l1->prev_sample = runtime->sampler->l1->new_sample;
 	unsigned long idx = runtime->sampler->samplectrs[core];
 	if (runtime->cfg->experimental)
 	{
-		runtime->sampler->l1->prev_sample = runtime->sampler->l1->new_sample;
 		runtime->sampler->thread_samples[core][idx].frq_data = perf;
 		runtime->sampler->thread_samples[core][idx].tsc_data = tsc;
 		runtime->sampler->thread_samples[core][idx].aperf = aperf;
@@ -60,14 +60,15 @@ int sample_data(struct powgov_runtime *runtime)
 		{
 			// every N samples do a buffered write to data file
 			dump_data(runtime, runtime->files->sampler_dumpfiles);
-			runtime->sampler->samplectrs[core] = 0;
+			runtime->sampler->samplectrs[core] = -1;
 		}
 	}
 	else
 	{
-		runtime->sampler->l1->prev_sample = runtime->sampler->l1->new_sample;
 		runtime->sampler->l1->new_sample.frq_data = perf;
 		runtime->sampler->l1->new_sample.tsc_data = tsc;
+		runtime->sampler->l1->new_sample.aperf = aperf;
+		runtime->sampler->l1->new_sample.mperf = mperf;
 		runtime->sampler->l1->new_sample.energy_data = energy & 0xFFFFFFFF;
 		/* runtime->sampler->l1->new_sample.rapl_throttled = rapl_throttled & 0xFFFFFFFF; */
 		runtime->sampler->l1->new_sample.therm = therm;

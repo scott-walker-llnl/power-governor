@@ -1,6 +1,6 @@
 #pragma once
 #include "powgov.h"
-#define MAX_PROFILES 20
+#define MAX_PROFILES 64
 #define NUM_CLASSES 4
 #define SCALE_OUTLIER_THRESH_LOW 0.8
 #define SCALE_OUTLIER_THRESH_HIGH 1.2
@@ -65,8 +65,8 @@ struct workload_profile
 	double rpc; // resource stalls/cycle measured for this workload
 	double epc; // execution stalls/cycle measured for this workload
 	double bpc; // branch instructions/cycle measured for this workload
-	double frq; // average frequency measured for this workload
-	double frq_target; // the frequency being used for this workload
+	float frq; // average frequency measured for this workload
+	float frq_target; // the frequency being used for this workload
 	uint64_t occurrences; // how many times this workload has occurred sequentially
 	char class; // what class is the current workload (cpu, mem, etc)
 	char unthrottle_cycles; // how many cycles has the workload gone unthrottled
@@ -78,12 +78,15 @@ struct phase_profile
 	struct workload_profile workload;
 	double cycles;
 	unsigned short phase_occurrences;
+	char l3_freeze; // used to prevent l3 from dropping again too quickly
+	double ipc_history; // ipc before l3 intervention
 };
 
 struct powgov_classifier
 {
 	double dist_thresh; // the threshold for profile cluster identification
 	double pct_thresh; // the threshold for displaying dumped profiles as execution percent
+	double phase_cycle_thresh; // the threshold for difference in phase cycles
 	int numphases; // the current number of phases
 	struct phase_profile phases[MAX_PROFILES]; // the cluster centers
 	//float transition_table[MAX_PROFILES][MAX_PROFILES]; // phase transition matrix
@@ -95,10 +98,8 @@ struct powgov_classifier
 
 
 double workload_metric_distance(struct workload_profile *old, struct workload_profile *new, struct workload_profile *maximums);
-// TODO: this is ugly
-double phase_metric_distance(struct phase_profile *old, struct phase_profile *new, struct workload_profile *maximums, double minimum_cycles, double maximum_cycles);
 //void agglomerate_profiles(struct powgov_runtime *runtime);
-//void remove_unused(struct powgov_runtime *runtime);
+void remove_unused(struct powgov_runtime *runtime);
 void update_max(struct powgov_runtime *runtime, struct workload_profile *this_profile);
 void print_profile(struct workload_profile *prof);
 int classify_workload(struct powgov_runtime *runtime, struct workload_profile *workload);

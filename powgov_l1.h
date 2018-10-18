@@ -26,4 +26,5 @@ void update_current_workload(struct powgov_runtime *runtime, struct workload_pro
 int branch_same_workload(struct powgov_runtime *runtime, struct workload_profile *this_profile);
 int branch_change_workload(struct powgov_runtime *runtime, struct workload_profile *this_profile);
 void react_to_workload(struct powgov_runtime *runtime);
-void update_minmax_cycles(struct powgov_runtime *runtime, double cycles);
+struct phase_profile *update_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, struct phase_profile *prof, double phase_cycles);
+struct phase_profile *add_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, double phase_cycles);

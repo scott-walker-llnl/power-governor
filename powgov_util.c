@@ -88,12 +88,14 @@ void activate_performance_counters(struct powgov_runtime * runtime)
 
 void set_perf(struct powgov_runtime *runtime, const unsigned freq)
 {
+	/* printf("received freq %u to set\n", freq); */
 	uint64_t perf_ctl = 0x0ul;
 	uint64_t freq_mask = freq;
 	read_msr_by_coord(0, 0, 0, IA32_PERF_CTL, &perf_ctl);
 	perf_ctl &= 0xFFFFFFFFFFFF0000ul;
 	freq_mask <<= 8;
 	perf_ctl |= freq_mask;
+	/* printf("setting %lx\n", perf_ctl); */
 	//write_msr_by_coord(0, tid, 0, IA32_PERF_CTL, perf_ctl);
 	//write_msr_by_coord(0, tid, 1, IA32_PERF_CTL, perf_ctl);
 	int i;
@@ -101,7 +103,8 @@ void set_perf(struct powgov_runtime *runtime, const unsigned freq)
 	{
 		write_msr_by_coord(0, i, 0, IA32_PERF_CTL, perf_ctl);
 		//write_msr_by_coord(0, i, 1, IA32_PERF_CTL, perf_ctl);
-		write_msr_by_coord(1, i, 0, IA32_PERF_CTL, perf_ctl);
+		// TODO: should do this if second socket exists
+		//write_msr_by_coord(1, i, 0, IA32_PERF_CTL, perf_ctl);
 		//write_msr_by_coord(1, i, 1, IA32_PERF_CTL, perf_ctl);
 	}
 }
@@ -112,6 +115,8 @@ void set_rapl(double sec, double watts, double pu, double su, unsigned affinity)
 	uint64_t seconds;
 	uint64_t timeval_y = 0, timeval_x = 0;
 	double logremainder = 0;
+
+	printf("setting RAPL to %lfwatts, %lf seconds\n", watts, sec);
 
 	timeval_y = (uint64_t) log2(sec / su);
 	// store the mantissa of the log2
@@ -133,8 +138,10 @@ void set_rapl(double sec, double watts, double pu, double su, unsigned affinity)
 	// store the bits in the Intel specified format
 	seconds = (uint64_t) (timeval_y | (timeval_x << 5));
 	uint64_t rapl = 0x0 | power | (seconds << 17);
+	uint64_t oldrapl = 0x0;
+	read_msr_by_coord(0, 0, 0, MSR_PKG_POWER_LIMIT, &oldrapl);
 
-	rapl |= (1LL << 15) | (1LL << 16);
+	rapl |= (1LL << 15) | (1LL << 16) | (oldrapl & 0xFFFFFFFF00000000);
 	write_msr_by_coord(0, 0, 0, MSR_PKG_POWER_LIMIT, rapl);
 }
 

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <math.h>
 
 #include "powgov.h"
 #include "powgov_util.h"
@@ -35,6 +36,17 @@ double VERBOSE;
 double REPORT;
 char CLASS_NAMES[NUM_CLASSES + 1][8] = {"CPU\0", "MEM\0", "IO\0", "MIX\0", "UNK\0"};
 
+void dump_error_report(struct powgov_runtime *runtime)
+{
+	char fname[32];
+	snprintf(fname, 32, "powgov_error");
+	FILE *error = fopen(fname, "w");
+	double avgrate = 1.0; // does not mean anything for error reporting
+	dump_phaseinfo(runtime, error, &avgrate);
+	fclose(error);
+}
+
+// TODO: why is avgrate a pointer?
 void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgrate)
 {
 	int i;
@@ -51,8 +63,8 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 		double pct = (double) phases[i].workload.occurrences / (double) recorded_steps;
 		if (avgrate != NULL)
 		{
-			fprintf(outfile, "PHASE ID %d\t %.3lf seconds\t(%3.2lf%%)\n", i, *avgrate *
-					phases[i].workload.occurrences, pct * 100.0);
+			fprintf(outfile, "PHASE ID %d\t %.3lf seconds\t(%3.2lf%%)\t%lf cycles\n",
+					i, *avgrate * phases[i].workload.occurrences, pct * 100.0, phases[i].cycles);
 			totaltime += *avgrate * phases[i].workload.occurrences;
 			//totalpct += pct * 100.0;
 		}
@@ -73,8 +85,8 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 		}
 		if (avgrate != NULL)
 		{
-			fprintf(outfile, "\nPHASE ID %d\t %.3lf seconds\t(%3.2lf%%)\n", i, *avgrate *
-					phases[i].workload.occurrences, pct * 100.0);
+			fprintf(outfile, "\nPHASE ID %d\t %.3lf seconds\t(%3.2lf%%)\t%lf cycles\n",
+					i, *avgrate * phases[i].workload.occurrences, pct * 100.0, phases[i].cycles);
 		}
 		else
 		{
@@ -85,11 +97,12 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 		fprintf(outfile, "\tresource stalls per cycle     %lf\n", phases[i].workload.rpc);
 		fprintf(outfile, "\texecution stalls per cycle    %lf\n", phases[i].workload.epc);
 		fprintf(outfile, "\tbranch instructions per cycle %lf\n", phases[i].workload.bpc);
-		fprintf(outfile, "\tphase occurrences             %lu\n\tprev phase id's:", phases[i].workload.occurrences);
+		fprintf(outfile, "\tphase occurrences             %lu\n", phases[i].workload.occurrences);
 		
-		fprintf(outfile, "\n\tfrequency     %lf\n", phases[i].workload.frq / 10.0);
-		fprintf(outfile, "\tfrq target    %lf\n", phases[i].workload.frq_target / 10.0);
-		fprintf(outfile, "\tclass %s\n", CLASS_NAMES[(int)phases[i].workload.class]);
+		fprintf(outfile, "\tfrequency     %lf\n", FRQ_AS_GHZ(phases[i].workload.frq));
+		fprintf(outfile, "\tfrq target    %lf\n", FRQ_AS_GHZ(phases[i].workload.frq_target));
+		fprintf(outfile, "\tclass %s (%d)\n", CLASS_NAMES[(int)phases[i].workload.class],
+				phases[i].workload.class);
 
 		int j;
 		for (j = 0; j < runtime->classifier->numphases; j++)
@@ -100,7 +113,8 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 				struct workload_profile scaled_profile;
 				frequency_scale_phase(&phases[j].workload, phases[j].workload.frq, phases[i].workload.frq, &scaled_profile);
 				double dist = workload_metric_distance(&scaled_profile, &phases[i].workload, &runtime->classifier->prof_maximums);
-				fprintf(outfile, "\tdistance from %d: %lf\n", j, dist);
+				fprintf(outfile, "\tdistance from %d: %lf (%lf cycles)\n", j, dist,
+						fabs(phases[i].cycles - phases[j].cycles));
 			}
 		}
 	}
@@ -121,7 +135,7 @@ void dump_data(struct powgov_runtime *runtime, FILE **outfile)
 		for (i = 0; i < runtime->sampler->samplectrs[j]; i++)
 		{
 			double time = (thread_samples[j][i + 1].tsc_data - thread_samples[j][i].tsc_data) /
-				((((thread_samples[j][i].frq_data & 0xFFFFul) >> 8) / 10.0) * 1000000000.0);
+				(FRQ_AS_GHZ(((thread_samples[j][i].frq_data & 0xFFFFul) >> 8)) * 1000000000.0);
 
 			unsigned long diff = (thread_samples[j][i + 1].energy_data -
 				thread_samples[j][i].energy_data);
@@ -129,7 +143,7 @@ void dump_data(struct powgov_runtime *runtime, FILE **outfile)
 
 			fprintf(outfile[j], 
 				"%f\t%llx\t%llu\t%lf\t%llu\t%llx\t%llu\t%llu\t%llu\t%llu\t%llu\n",
-				((thread_samples[j][i].frq_data & 0xFFFFul) >> 8) / 10.0,
+				FRQ_AS_GHZ(((thread_samples[j][i].frq_data & 0xFFFFul) >> 8)),
 				(unsigned long long) (thread_samples[j][i].frq_data & 0xFFFFul),
 				//(unsigned long long) (thread_samples[j][i].tsc_data),
 				(unsigned long long) (thread_samples[j][i + 1].tsc_data - thread_samples[j][i].tsc_data),
@@ -202,8 +216,8 @@ void dump_sys(struct powgov_runtime *runtime, FILE *out)
 {
 	fprintf(out, "System Configuration:\n");
 	fprintf(out, "\tMax frequency %f\n\tBase Frequency %f\n\tSockets %d\n\tCores Per Socket %d\n",
-			runtime->sys->max_pstate / 10.0, runtime->sys->max_non_turbo / 10.0, runtime->sys->sockets, 
-			runtime->sys->coresPerSocket);
+			FRQ_AS_GHZ(runtime->sys->max_pstate), FRQ_AS_GHZ(runtime->sys->max_non_turbo),
+			runtime->sys->sockets, runtime->sys->coresPerSocket);
 	fprintf(out, "\tHyperthreads %s\n\tTotal Processors %d\n\tTDP %lf\n", 
 			(runtime->sys->threadsPerCore ? "enabled" : "disabled"), runtime->sys->num_cpu, 
 			runtime->power->proc_tdp);
@@ -251,7 +265,7 @@ int main(int argc, char **argv)
 	runtime->cfg->man_cpu_ctrl = 1; // -s for "system control"
 	runtime->cfg->threadcount = 1;
 	runtime->cfg->experimental = 0; // -e for experimental
-	runtime->cfg->mem_pow_shift = 0;
+	runtime->cfg->mem_pow_shift = 1;
 	runtime->cfg->fup_timeout = 100;
 	runtime->cfg->frq_duty_length = 10;
 	runtime->cfg->cpu_frq_override = 0.0;
@@ -277,6 +291,7 @@ int main(int argc, char **argv)
 	runtime->sampler->sps = 500; // -r for "rate"
 	runtime->classifier->dist_thresh = 0.25;
 	runtime->classifier->pct_thresh = 0.01;
+	runtime->classifier->phase_cycle_thresh = 25000000;
 	
 	// TODO: sampling should just dump every x seconds
 	VERBOSE = 0; // -v for "verbose"
@@ -416,7 +431,7 @@ int main(int argc, char **argv)
 									argv[j]);
 							exit(-1);
 						}
-						runtime->cfg->mem_frq_override = (double) atof(argv[j+1]);
+						runtime->cfg->mem_frq_override = (double) atof(argv[j+1]) * 10;
 						break;
 					case 'C':
 						ARG_ERROR;
@@ -426,7 +441,7 @@ int main(int argc, char **argv)
 									argv[j]);
 							exit(-1);
 						}
-						runtime->cfg->cpu_frq_override = (double) atof(argv[j+1]);
+						runtime->cfg->cpu_frq_override = (double) atof(argv[j+1]) * 10;
 						break;
 					case 'h':
 					default:
@@ -491,8 +506,6 @@ int main(int argc, char **argv)
 	runtime->sampler->l2->interval = (unsigned) (runtime->power->window * 1000.0);
 	runtime->sampler->l3->interval = runtime->sampler->sps;
 	runtime->sampler->l3->baseline_ipc = 0.0;
-	runtime->sampler->l3->minimum_cycles = DBL_MAX;
-	runtime->sampler->l3->maximum_cycles = -1.0;
 	runtime->power->excursion = 0;
 
 
@@ -592,7 +605,7 @@ int main(int argc, char **argv)
 		fprintf(runtime->files->sreport, "\tAverage Sampling Rate: %lf seconds\n", avgrate);
 		fprintf(runtime->files->sreport, "\tAvg Frq: %f\n", (float) 
 				(aperf_after - aperf_before) / (float) 
-				(mperf_after - mperf_before) * runtime->sys->max_non_turbo / 10.0);
+				(mperf_after - mperf_before) * FRQ_AS_GHZ(runtime->sys->max_non_turbo));
 		fprintf(runtime->files->sreport, "\tInstructions: %lu (ovf %u)\n", 
 				inst_after - inst_before, ovf_ctr);
 		fprintf(runtime->files->sreport, "\tIPS: %lf (ovf %u)\n", 

@@ -10,28 +10,11 @@
 
 double workload_metric_distance(struct workload_profile *old, struct workload_profile *new, struct workload_profile *maximums)
 {
-	double ipcnorm = ((old->ipc - 0.0) / (maximums->ipc - 0.0)) -
-		((new->ipc - 0.0) / (maximums->ipc - 0.0));
+	double ipcnorm = (old->ipc / maximums->ipc) - (new->ipc / maximums->ipc);
+	double epcnorm = (old->epc / maximums->epc) - (new->epc / maximums->epc);
 
-	double epcnorm = ((old->epc - 0.0) / (maximums->epc - 0.0)) -
-		((new->epc - 0.0) / (maximums->epc - 0.0));
 	//return sqrt(pow(ipcnorm, 2.0) + pow(mpcnorm, 2.0) + pow(rpcnorm, 2.0) + pow(epcnorm, 2.0) + pow(bpcnorm, 2.0));
 	return sqrt(pow(ipcnorm, 2.0) + pow(epcnorm, 2.0));
-}
-
-double phase_metric_distance(struct phase_profile *old, struct phase_profile *new, struct workload_profile *maximums, double minimum_cycles, double maximum_cycles)
-{
-	// TODO
-	double ipcnorm = ((old->workload.ipc - 0.0) / (maximums->ipc - 0.0)) -
-		((new->workload.ipc - 0.0) / (maximums->ipc - 0.0));
-
-	double epcnorm = ((old->workload.epc - 0.0) / (maximums->epc - 0.0)) -
-		((new->workload.epc - 0.0) / (maximums->epc - 0.0));
-
-	double cyclesnorm = ((old->cycles - minimum_cycles) / (maximum_cycles - minimum_cycles)) -
-		((new->cycles - minimum_cycles) / (maximum_cycles - minimum_cycles));
-
-	return sqrt(pow(ipcnorm, 2.0) + pow(epcnorm, 2.0) + pow(cyclesnorm, 2.0));
 }
 
 // TODO: weighted averaging should scale first
@@ -176,89 +159,61 @@ void agglomerate_profiles(struct powgov_runtime *runtime)
 }
 */
 
-/*
 void remove_unused(struct powgov_runtime *runtime)
 {
 	if (runtime->classifier->numphases <= 0)
 	{
 		return;
 	}
-	//printf("(remove) numphases %d\n", numphases);
 
 	int i;
-	//uint64_t occurrence_sum = 0;
 	char valid[MAX_PROFILES];
 	memset(valid, 1, MAX_PROFILES);
 	int numinvalid = 0;
-	int firstinvalid = -1;
-	struct workload_profile *profiles = runtime->classifier->profiles;
+	struct phase_profile *phases = runtime->classifier->phases;
 
 	for (i = 0; i < runtime->classifier->numphases; i++)
 	{
-		//occurrence_sum += old_profiles[i].occurrences;
-		if (profiles[i].occurrences <= 1)
+		if (phases[i].workload.occurrences <= 5)
 		{
-			//printf("(remove) removing id %d with %lu occurrences\n", i, profiles[i].occurrences);
 			valid[i] = 0;
 			numinvalid++;
-			if (firstinvalid < 0)
-			{
-				firstinvalid = i;
-			}
 		}
 	}
-	//for (i = 0; i < runtime->classifier->numphases; i++)
-	//{
-	//	if (old_profiles[i].occurrences / (double) occurrence_sum < PRUNE_THRESH)
-	//	{
-	//		valid[i] = 0;
-	//		numinvalid++;
-	//	}
-	//}
 	if (numinvalid == 0)
 	{
 		return;
 	}
 
-	struct workload_profile old_profiles[MAX_PROFILES];
-	int newidx = 0;
-	memcpy(old_profiles, profiles, runtime->classifier->numphases * sizeof(struct workload_profile));
+	struct phase_profile blankphase;
+	memset(&blankphase, 0, sizeof(struct phase_profile));
 
-	newidx = firstinvalid;
-	for (i = firstinvalid; i < runtime->classifier->numphases; i++)
+	int j;
+	int lastvalid = 0;
+	// stop before end of phases array because impossible to copy from right neighbor at last
+	for (i = 0; i < runtime->classifier->numphases - 1; i++)
 	{
-		if (i == newidx && valid[i])
+		if (valid[i] == 0)
 		{
-			//printf("(remove) skipping id %d\n", i);
-			newidx++;
-		}
-		else if (valid[i])
-		{
-			//printf("(remove) sliding id %d to %d\n", i, newidx);
-			if (i == runtime->classifier->recentphase)
+			// look through neighbors to right and find first valid one
+			j = lastvalid + 1;
+			while (j < runtime->classifier->numphases && valid[j] == 0)
 			{
-				runtime->classifier->recentphase = newidx;
+				j++;
 			}
-			memcpy(&profiles[newidx], &old_profiles[i], sizeof(struct workload_profile));
-			newidx++;
+			// copy it to the first invalid phase entry
+			phases[i] = phases[j];
+			lastvalid = j;
 		}
 	}
- runtime->classifier->numphases = newidx;
-	//printf("(remove) runtime->classifier->numphases is now %d\n", runtime->classifier->numphases);
-	//printf("(remove) runtime->classifier->recentphase is now %d\n", runtime->classifier->recentphase);
-}
-*/
 
-void update_minmax_cycles(struct powgov_runtime *runtime, double cycles)
-{
-	if (cycles < runtime->sampler->l3->minimum_cycles)
+	// fill in remaining entries with blank data
+	for (; i < runtime->classifier->numphases; i++)
 	{
-		runtime->sampler->l3->minimum_cycles = cycles;
+		phases[i] = blankphase;
 	}
-	if (cycles > runtime->sampler->l3->maximum_cycles)
-	{
-		runtime->sampler->l3->maximum_cycles = cycles;
-	}
+
+	runtime->classifier->numphases -= numinvalid;
 }
 
 void update_max(struct powgov_runtime *runtime, struct workload_profile *this_profile)
@@ -287,8 +242,9 @@ void update_max(struct powgov_runtime *runtime, struct workload_profile *this_pr
 
 void print_profile(struct workload_profile *prof)
 {
-	printf("ipc: %lf\nmpc %lf\nrpc %lf\nepc %lf\nbpc %lf\nfrq %lf\nocc %lu\n", prof->ipc,
-			prof->mpc, prof->rpc, prof->epc, prof->bpc, prof->frq, prof->occurrences);
+	printf("\tipc: %lf\n\tmpc %lf\n\trpc %lf\n\tepc %lf\n\tbpc %lf\n\tfrq %f\n\ttarget %f\n\tocc %lu\n",
+			prof->ipc, prof->mpc, prof->rpc, prof->epc, prof->bpc, FRQ_AS_GHZ(prof->frq),
+			FRQ_AS_GHZ(prof->frq_target), prof->occurrences);
 }
 
 int classify_workload(struct powgov_runtime *runtime, struct workload_profile *workload)
@@ -296,7 +252,7 @@ int classify_workload(struct powgov_runtime *runtime, struct workload_profile *w
 	int i = -1;
 	int minidx = -1;
 	double mindist = DBL_MAX;
-	double freq = ((double) workload->frq) / 10.0;
+	double freq = FRQ_AS_GHZ(workload->frq);
 	struct workload_profile *prof_class = runtime->classifier->prof_class;
 	prof_class[0].ipc = freq * CLASS_CPU_SLOPE_IPC + CLASS_CPU_INTERCEPT_IPC;
 	prof_class[0].epc = freq * CLASS_CPU_SLOPE_EPC + CLASS_CPU_INTERCEPT_EPC;
@@ -329,6 +285,8 @@ int classify_workload(struct powgov_runtime *runtime, struct workload_profile *w
 }
 
 // TODO: keep working on scaling accuracy
+// NOTE: data to be scaled should always be single sample rather than existing data entry,
+// since scaling error is less harmful for single data point
 void frequency_scale_phase(struct workload_profile *unscaled_profile, double frq_source, double frq_target, struct workload_profile *scaled_profile)
 {
 	*scaled_profile = *unscaled_profile;

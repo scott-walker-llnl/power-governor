@@ -7,6 +7,8 @@
 
 #define FNAMESIZE 32
 
+#define FRQ_AS_GHZ(mfrq) (mfrq / 10.0)
+
 struct powgov_classifier;
 struct powgov_sampler;
 struct data_sample;
@@ -74,3 +76,4 @@ void dump_data(struct powgov_runtime *runtime, FILE **outfile);
 void dump_help();
 void dump_config(struct powgov_runtime *runtime, FILE *out);
 void dump_sys(struct powgov_runtime *runtime, FILE *out);
+void dump_error_report(struct powgov_runtime *runtime);

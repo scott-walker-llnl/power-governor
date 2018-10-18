@@ -1,55 +1,90 @@
 #include <string.h>
+#include <stdlib.h>
 #include "powgov_l3.h"
 #include "powgov_l1.h"
 
 void l3_analysis(struct powgov_runtime *runtime)
 {
-	// check how ipc of various phases changes over time in response to L1
-}
-
-struct phase_profile *update_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, struct phase_profile *prof, double phase_cycles)
-{
-	prof->phase_occurrences++;
-	uint64_t prev_occurrences = prof->workload.occurrences;
-	uint64_t new_occurrences = this_profile->occurrences;
-
-	prof->workload.occurrences = prev_occurrences + new_occurrences;
-
-	prof->workload.ipc = (prof->workload.ipc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->ipc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.mpc = (prof->workload.mpc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->mpc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.rpc = (prof->workload.rpc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->rpc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.epc = (prof->workload.epc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->epc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.bpc = (prof->workload.bpc *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->bpc * (new_occurrences / prof->workload.occurrences));
-	prof->workload.frq = (prof->workload.frq *
-			(prev_occurrences / prof->workload.occurrences)) +
-			(this_profile->frq * (new_occurrences / prof->workload.occurrences));
-
-	prof->cycles = (prof->cycles * (prof->phase_occurrences - 1.0) +
-			phase_cycles * (1.0 / prof->phase_occurrences));
-	return prof;
-}
-
-struct phase_profile *add_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, double phase_cycles)
-{
-	struct phase_profile *newphase = 
-		&runtime->classifier->phases[runtime->classifier->numphases];
-
-	newphase->workload = *this_profile;
-	newphase->cycles = phase_cycles;
-	newphase->phase_occurrences = 1;
-
-	runtime->classifier->numphases++;
-	return newphase;
+	// look through graph and identify MEM phases before CPU phases
+	// TODO: check if end-to-end power over this window is below limit
+	printf("l3 analysis\n");
+	if (runtime->cfg->mem_pow_shift == 0)
+	{
+		printf("mem pow shift disabled\n");
+		return;
+	}
+	struct l3_graph_node *begin = runtime->sampler->l3->graph;
+	struct l3_graph_node *itr = runtime->sampler->l3->graph;
+	for (; itr < begin + MAX_L3_GRAPH; itr++)
+	{
+		if (itr->phase == NULL)
+		{
+			continue;
+		}
+		if (itr->phase->workload.class == CLASS_MEM && itr->nextnode != NULL)
+		{
+			if (itr->nextnode->phase->workload.class == CLASS_CPU)
+			{
+				if (itr->phase->l3_freeze == 0) 
+				{
+					printf("throttling mem phase\n");
+					print_profile(&itr->phase->workload);
+					// we have found a MEM before CPU phase, drop target freq
+					itr->phase->workload.frq_target -= runtime->cfg->frq_change_step * 2.0;
+					//  freeze this phase for a while so that we don't drop too fast
+					itr->phase->l3_freeze = 3;
+					itr->phase->ipc_history = itr->phase->workload.ipc;
+					itr->nextnode->phase->ipc_history = itr->nextnode->phase->workload.ipc;
+					itr->nextnode->phase->l3_freeze = 1;
+				}
+				else
+				{
+					// check if ipc increases for CPU phases after throttled MEM phases 
+					double memdiff = itr->phase->workload.ipc - itr->phase->ipc_history;
+					double cpudiff = itr->nextnode->phase->workload.ipc -
+							itr->nextnode->phase->ipc_history;
+					// if memdiff is negative, we slowed down memory phase
+					// 		memdiff is >= 0 we did not effect memory phase
+					// if cpudiff is negative, we slowed down cpu phase
+					// 		cpudiff is >= 0 we sped up or did not effect cpu phase
+					// if -mem, +cpu GOOD
+					// if -mem, -cpu BAD
+					// if +mem, +cpu GOOD
+					// if +mem, -cpu BAD
+					if (memdiff < 0.0 && cpudiff >= 0.0)
+					{
+						// this is good, mem was slowed but overall IPC increased
+						// we at least saved power if broke even
+						itr->phase->l3_freeze--;
+					}
+					else if (memdiff >= 0.0 && cpudiff >= 0.0)
+					{
+						// this is good, we either sped up one or both without hurting other
+						itr->phase->l3_freeze--;
+					}
+					else
+					{
+						printf("unthrottling mem phase\n");
+						print_profile(&itr->phase->workload);
+						// either of following
+						// (memdiff < 0.0 && cpudiff < 0.0)
+						// (memdiff >= 0.0 && cpudif < 0.0)
+						// this is bad, we made CPU or everything worse
+						itr->phase->l3_freeze++;
+						if (itr->phase->l3_freeze > 5 &&
+							itr->phase->workload.frq_target < runtime->sys->max_pstate)
+						{
+							// this was consistently a bad decision and we are still under
+							// frequency, so we should raise it
+							itr->phase->l3_freeze = 3;
+							itr->phase->workload.frq_target += 
+									runtime->cfg->frq_change_step * 2.0;
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 void add_graph_node(struct powgov_runtime *runtime, struct phase_profile *new_phase)
