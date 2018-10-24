@@ -78,8 +78,6 @@ struct phase_profile
 	struct workload_profile workload;
 	double cycles;
 	unsigned short phase_occurrences;
-	char l3_freeze; // used to prevent l3 from dropping again too quickly
-	double ipc_history; // ipc before l3 intervention
 };
 
 struct powgov_classifier

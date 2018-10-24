@@ -4,14 +4,18 @@
 #include "powgov_profiles.h"
 
 #define MAX_L3_SEQ 32
-#define MAX_L3_GRAPH 16
+#define MAX_L3_GRAPH 128
 
 struct powgov_runtime;
 
 struct l3_graph_node
 {
 	struct phase_profile *phase;
-	struct l3_graph_node *nextnode;
+	struct l3_graph_node *next; // most recently used successor
+	char l3_freeze; // used to prevent l3 from dropping again too quickly
+	char l3_thaw; // used to prevent l3 from raising too quickly
+	char pow_shift; // if true this phase is involved in power shifting
+	double ipc_history; // ipc before l3 intervention
 };
 
 struct powgov_l3
@@ -22,8 +26,8 @@ struct powgov_l3
 	uint64_t baseline_ipc;
 	//struct phase_profile sequence[MAX_L3_SEQ];
 	struct l3_graph_node graph[MAX_L3_GRAPH];
-	struct phase_profile *predicted_phase;
 	struct l3_graph_node *current_node;
+	struct l3_graph_node *prelim;
 };
 
 void l3_analysis(struct powgov_runtime *runtime);

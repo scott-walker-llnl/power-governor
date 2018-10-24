@@ -151,6 +151,35 @@ int branch_same_workload(struct powgov_runtime *runtime, struct workload_profile
 	return 0;
 }
 
+static int check_prediction(struct powgov_runtime *runtime, struct l3_graph_node *prediction,
+		struct workload_profile *this_profile)
+{
+	if (prediction != NULL)
+	{
+		struct workload_profile scaled_profile;
+		double dist_to_predicted;
+		// scale the epoch phase to the frequency of the last seen phase
+		frequency_scale_phase(this_profile, this_profile->frq, prediction->phase->workload.frq,
+				&scaled_profile);
+		// calculate distance between epoch and last seen phase
+		dist_to_predicted = workload_metric_distance(&scaled_profile,
+				&prediction->phase->workload,
+				&runtime->classifier->prof_maximums);
+		/* printf("\nhave workload\n"); */
+		/* print_profile(this_profile); */
+		/* printf("predicted workload\n"); */
+		/* print_profile(&runtime->sampler->l3->predicted_phase->workload); */
+		if (dist_to_predicted < runtime->classifier->dist_thresh)
+		{
+			// prediction was correct
+			this_profile->frq_target =
+					prediction->phase->workload.frq_target;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int branch_change_workload(struct powgov_runtime *runtime, struct workload_profile *this_profile)
 {
 	// we are in a new phase, we can now say what the last phase was 
@@ -169,22 +198,17 @@ int branch_change_workload(struct powgov_runtime *runtime, struct workload_profi
 	this_profile->frq_target = runtime->sys->max_pstate;
 
 	// check if current_workload has been predicted by L3 
-	if (runtime->sampler->l3->predicted_phase != NULL)
+	if (runtime->sampler->l3->current_node != NULL)
 	{
-		struct workload_profile scaled_profile;
-		double dist_to_predicted;
-		// scale the epoch phase to the frequency of the last seen phase
-		frequency_scale_phase(this_profile, this_profile->frq,
-				runtime->sampler->l3->predicted_phase->workload.frq, &scaled_profile);
-		// calculate distance between epoch and last seen phase
-		dist_to_predicted = workload_metric_distance(&scaled_profile,
-				&runtime->sampler->l3->predicted_phase->workload,
-				&runtime->classifier->prof_maximums);
-		if (dist_to_predicted < runtime->classifier->dist_thresh)
+		if (runtime->sampler->l3->current_node->next != NULL)
 		{
-			// prediction was correct
-			this_profile->frq_target =
-					runtime->sampler->l3->predicted_phase->workload.frq_target;
+			check_prediction(runtime, runtime->sampler->l3->current_node->next, 
+					this_profile);
+			printf("prediction was correct\n");
+		}
+		else
+		{
+			printf("prediction was wrong\n");
 		}
 	}
 
