@@ -36,6 +36,7 @@ double VERBOSE;
 double REPORT;
 char CLASS_NAMES[NUM_CLASSES + 1][8] = {"CPU\0", "MEM\0", "IO\0", "MIX\0", "UNK\0"};
 
+// this can be used to dump a report to a file if the program has an error
 void dump_error_report(struct powgov_runtime *runtime)
 {
 	char fname[32];
@@ -47,6 +48,7 @@ void dump_error_report(struct powgov_runtime *runtime)
 }
 
 // TODO: why is avgrate a pointer?
+// this dumps the phase descriptors, and graph information
 void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgrate)
 {
 	int i;
@@ -63,7 +65,7 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 		double pct = (double) phases[i].workload.occurrences / (double) recorded_steps;
 		if (avgrate != NULL)
 		{
-			fprintf(outfile, "PHASE ID %d\t %.3lf seconds\t(%3.2lf%%)\t%lf cycles\n",
+			fprintf(outfile, "PHASE ID %4d\t %12.3lf seconds\t(%6.2lf%%)\t%16.0lf cycles\n",
 					i, *avgrate * phases[i].workload.occurrences, pct * 100.0, phases[i].cycles);
 			totaltime += *avgrate * phases[i].workload.occurrences;
 			//totalpct += pct * 100.0;
@@ -72,7 +74,7 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 	if (avgrate != NULL)
 	{
 		totalpct = (double) recorded_steps / (double) runtime->sampler->samplectrs[0];
-		fprintf(outfile, "TOTAL\t\t%.2lf\t(%3.2lf%% accounted)\n", totaltime, totalpct * 100.0);
+		fprintf(outfile, "TOTAL\t\t%12.2lf\t(%5.2lf%% accounted)\n", totaltime, totalpct * 100.0);
 	}
 	
 	for (i = 0; i < runtime->classifier->numphases; i++)
@@ -85,26 +87,53 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 		}
 		if (avgrate != NULL)
 		{
-			fprintf(outfile, "\nPHASE ID %d\t %.3lf seconds\t(%3.2lf%%)\t%lf cycles\n",
+			fprintf(outfile, "\nPHASE ID %4d\t %12.3lf seconds\t(%6.2lf%%)\t%16.0lf cycles\n",
 					i, *avgrate * phases[i].workload.occurrences, pct * 100.0, phases[i].cycles);
 		}
 		else
 		{
 			fprintf(outfile, "\nPHASE ID %d\t(%3.0lf%%)\n", i, pct * 100);
 		}
-		fprintf(outfile, "\tinstructions per cycle        %lf\n", phases[i].workload.ipc);
-		fprintf(outfile, "\tLLC misses per cycle          %lf\n", phases[i].workload.mpc);
-		fprintf(outfile, "\tresource stalls per cycle     %lf\n", phases[i].workload.rpc);
-		fprintf(outfile, "\texecution stalls per cycle    %lf\n", phases[i].workload.epc);
-		fprintf(outfile, "\tbranch instructions per cycle %lf\n", phases[i].workload.bpc);
-		fprintf(outfile, "\tphase occurrences             %lu\n", phases[i].workload.occurrences);
-		
-		fprintf(outfile, "\tfrequency     %lf\n", FRQ_AS_GHZ(phases[i].workload.frq));
-		fprintf(outfile, "\tfrq target    %lf\n", FRQ_AS_GHZ(phases[i].workload.frq_target));
-		fprintf(outfile, "\tclass %s (%d)\n", CLASS_NAMES[(int)phases[i].workload.class],
-				phases[i].workload.class);
+		fprintf(outfile, "\tinstructions per cycle        %6.4lf\n", phases[i].workload.ipc);
+		fprintf(outfile, "\tLLC misses per cycle          %6.4lf\n", phases[i].workload.mpc);
+		fprintf(outfile, "\tresource stalls per cycle     %6.4lf\n", phases[i].workload.rpc);
+		fprintf(outfile, "\texecution stalls per cycle    %6.4lf\n", phases[i].workload.epc);
+		fprintf(outfile, "\tbranch instructions per cycle %6.4lf\n", phases[i].workload.bpc);
+		fprintf(outfile, "\tphase occurrences             %lu\n", 
+				phases[i].workload.occurrences);
+		fprintf(outfile, "\tfrequency                     %1.2lf\n",
+				FRQ_AS_GHZ(phases[i].workload.frq));
+		fprintf(outfile, "\tfrq target                    %1.2lf\n",
+				FRQ_AS_GHZ(phases[i].workload.frq_target));
+		fprintf(outfile, "\tclass                         %s (#%d)\n",
+				CLASS_NAMES[(int)phases[i].workload.class], phases[i].workload.class);
 
+		struct l3_graph_node *itr;
+		struct l3_graph_node *begin = runtime->sampler->l3->graph;
+		for (itr = begin; itr < begin + MAX_L3_GRAPH && itr->phase != &phases[i]; itr++);
+		fprintf(outfile, "\tpredecessors                  %u\n", itr->reference_counter);
+		fprintf(outfile, "\tSuccessors:\n");
 		int j;
+		for (j = 0; j < 3; j++)
+		{
+			if (itr->next[j] != NULL)
+			{
+				fprintf(outfile, "\t\t%4d (occurs %16lu)\n",
+						(int) (itr->next[j]->phase - runtime->classifier->phases),
+						itr->next_occurrences[j]);
+			}
+		}
+		fprintf(outfile, "\tFrequency Throttles:\n");
+		for (j = 0; j < MAX_PSTATE_NUM; j++)
+		{
+			if (phases[i].workload.throttlehist[j] != 0)
+			{
+				fprintf(outfile, "\t\t%2.2f: %u\n", (j + 8) / 10.0,
+						phases[i].workload.throttlehist[j]);
+			}
+		}
+
+		fprintf(outfile, "\tSimilarity:\n");
 		for (j = 0; j < runtime->classifier->numphases; j++)
 		{
 			double lpct = (double) phases[j].workload.occurrences / (double) recorded_steps;
@@ -113,13 +142,14 @@ void dump_phaseinfo(struct powgov_runtime *runtime, FILE *outfile, double *avgra
 				struct workload_profile scaled_profile;
 				frequency_scale_phase(&phases[j].workload, phases[j].workload.frq, phases[i].workload.frq, &scaled_profile);
 				double dist = workload_metric_distance(&scaled_profile, &phases[i].workload, &runtime->classifier->prof_maximums);
-				fprintf(outfile, "\tdistance from %d: %lf (%lf cycles)\n", j, dist,
+				fprintf(outfile, "\t\tdistance from %4d: %4.4lf (%16.0lf cycles)\n", j, dist,
 						fabs(phases[i].cycles - phases[j].cycles));
 			}
 		}
 	}
 }
 
+// this dumps the non-phase based data collected during the run
 void dump_data(struct powgov_runtime *runtime, FILE **outfile)
 {
 	struct data_sample **thread_samples = runtime->sampler->thread_samples;
@@ -162,6 +192,7 @@ void dump_data(struct powgov_runtime *runtime, FILE **outfile)
 	last_dump_loc = runtime->sampler->samplectrs[0];
 }
 
+// display the usage of this program
 void dump_help()
 {
 	//char validargs[] = "rlwLtdsveRhSAMO";
@@ -184,6 +215,7 @@ void dump_help()
 	printf("\t-C: manual frequency override for compute phase (requires -A)\n");
 }
 
+// dump the configuration settings of this instance
 void dump_config(struct powgov_runtime *runtime, FILE *out)
 {
 	fprintf(out, "Power Governor Configuration:\n");
@@ -212,6 +244,7 @@ void dump_config(struct powgov_runtime *runtime, FILE *out)
 	fprintf(out, "\tclassification threshold %lf\n", runtime->classifier->dist_thresh);
 }
 
+// dump system info
 void dump_sys(struct powgov_runtime *runtime, FILE *out)
 {
 	fprintf(out, "System Configuration:\n");
@@ -229,6 +262,7 @@ void dump_sys(struct powgov_runtime *runtime, FILE *out)
 	
 }
 
+// signal handler for power-governor, will shutdown and dump when it receives a SIGUSR1
 void signal_exit(int signum)
 {
 	fprintf(stderr, "Sampler terminating...\n");
@@ -274,6 +308,7 @@ int main(int argc, char **argv)
 	runtime->cfg->frq_change_step = 0.1;
 	runtime->cfg->throttle_avoid = 1;
 
+	// allocate all of the runtime data
 	runtime->sys = (struct powgov_sysconfig *) calloc(1, sizeof(struct powgov_sysconfig));
 	runtime->files = (struct powgov_files *) calloc(1, sizeof(struct powgov_files));
 	runtime->sampler = (struct powgov_sampler *) calloc(1, sizeof(struct powgov_sampler));
@@ -326,8 +361,6 @@ int main(int argc, char **argv)
 	// TODO: temporary solution
 	frequency_scale_phase(&runtime->classifier->prof_class[0], 0.8, 4.5, 
 			&runtime->classifier->prof_maximums);
-	printf("\nDEBUG prof_maximums:\n");
-	print_profile(&runtime->classifier->prof_maximums);
 
 
 	// lookup processor information with CPUID
@@ -352,16 +385,11 @@ int main(int argc, char **argv)
 	runtime->sys->threadsPerCore = hyperThreads;
 
 
-	// add control for various features used
-	// 1. power shifting (on default/off -S)
-	// 2. throttle avoidance (on default/off -A)
-	// 3. overpower (TODO) -O
-	// 4. memory phase frequency override -M, only works if power shifting is off
 	// process command line arguments
+	// TODO this could be cleaner
 	char validargs[] = "rlwLtdsveRhSAMOC";
 	unsigned char numargs = strlen(validargs);
 	int j;
-	// TODO this sucks
 	for (j = 1; j < argc; j++)
 	{
 		if (argv[j][0] != '-')
@@ -502,6 +530,9 @@ int main(int argc, char **argv)
 			runtime->sys->rapl_seconds_unit, 0);
 	set_rapl2(100, runtime->power->rapl2, runtime->sys->rapl_power_unit, runtime->sys->rapl_seconds_unit, 0);
 	runtime->power->energy_overflow = 0;
+
+
+	// setup sampler levels
 	runtime->sampler->l1->interval = 1000 / runtime->sampler->sps;
 	runtime->sampler->l2->interval = (unsigned) (runtime->power->window * 1000.0);
 	runtime->sampler->l3->interval = runtime->sampler->sps;

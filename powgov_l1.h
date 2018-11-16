@@ -13,12 +13,12 @@ struct workload_profile;
 
 struct powgov_l1
 {
-	char isthrottled;
-	struct data_sample new_sample;
-	struct data_sample prev_sample;
-	struct data_sample phase_begin;
-	unsigned long interval;
-	struct workload_profile current_workload;
+	char isthrottled; // true if the throttle reasons register is indicating RAPL
+	struct data_sample new_sample; // the newest gathered sample
+	struct data_sample prev_sample; // the sample from last poll
+	struct data_sample phase_begin; // the sample from the beginning of this phase
+	unsigned long interval; // the sample rate of this level
+	struct workload_profile current_workload; // the current workload descriptor
 };
 
 void l1_analysis(struct powgov_runtime *runtime);

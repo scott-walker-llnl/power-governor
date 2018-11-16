@@ -6,8 +6,9 @@
 #include "powgov_l1.h"
 #include "powgov_l2.h"
 #include "powgov_l3.h"
-// TODO: occurrences does not mean the same thing anymore, re-work weighted averages
 
+// convert IPC and EPC to a normalized metric space for workload comparison
+// TODO: occurrences does not mean the same thing anymore, re-work weighted averages
 double workload_metric_distance(struct workload_profile *old, struct workload_profile *new, struct workload_profile *maximums)
 {
 	double ipcnorm = (old->ipc / maximums->ipc) - (new->ipc / maximums->ipc);
@@ -159,6 +160,7 @@ void agglomerate_profiles(struct powgov_runtime *runtime)
 }
 */
 
+// remove unused phases
 void remove_unused(struct powgov_runtime *runtime)
 {
 	if (runtime->classifier->numphases <= 0)
@@ -216,6 +218,7 @@ void remove_unused(struct powgov_runtime *runtime)
 	runtime->classifier->numphases -= numinvalid;
 }
 
+// update the maximum IPC and EPC tracked for normalization use
 void update_max(struct powgov_runtime *runtime, struct workload_profile *this_profile)
 {
 	if (this_profile->ipc > runtime->classifier->prof_maximums.ipc)
@@ -240,6 +243,7 @@ void update_max(struct powgov_runtime *runtime, struct workload_profile *this_pr
 	}
 }
 
+// DEBUG: dump the data of a workload profile
 void print_profile(struct workload_profile *prof)
 {
 	printf("\tipc: %lf\n\tmpc %lf\n\trpc %lf\n\tepc %lf\n\tbpc %lf\n\tfrq %f\n\ttarget %f\n\tocc %lu\n",
@@ -247,6 +251,7 @@ void print_profile(struct workload_profile *prof)
 			FRQ_AS_GHZ(prof->frq_target), prof->occurrences);
 }
 
+// classify a workload into a predetermined class (CPU, MEM, IO, etc)
 int classify_workload(struct powgov_runtime *runtime, struct workload_profile *workload)
 {
 	int i = -1;
@@ -284,6 +289,7 @@ int classify_workload(struct powgov_runtime *runtime, struct workload_profile *w
 	return minidx;
 }
 
+// scale a phase profile to a different frequency using a heuristic approximation
 // TODO: keep working on scaling accuracy
 // NOTE: data to be scaled should always be single sample rather than existing data entry,
 // since scaling error is less harmful for single data point

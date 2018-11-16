@@ -2,18 +2,22 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 #include "powgov_l1.h"
 #include "powgov_l2.h"
 #include "powgov_l3.h"
 #include "master.h"
 #include "powgov_util.h"
 
-void l1_analysis(struct powgov_runtime *runtime)
-{
+//#define FRACTIONAL_FREQS
+
+// level 1 does 4 things
 	// 1. find phase barriers
 	// 2. avoid throttles (happens in "classify")
 	// 3. set frequency (happens in "classify")
 	// 4. check L3 prediction (happens in branch_change_workload)
+void l1_analysis(struct powgov_runtime *runtime)
+{
 
 	// TODO: this should actually be used...
 	if (runtime->sampler->l1->new_sample.energy_data < 
@@ -32,7 +36,7 @@ void l1_analysis(struct powgov_runtime *runtime)
 	uint64_t this_exstalls = new_sample->exstalls - prev_sample->exstalls;
 	uint64_t this_branchret = new_sample->branchret - prev_sample->branchret;
 
-		// create a profile for the last executed epoch
+	// create a profile for the last executed epoch
 	struct workload_profile this_profile;
 	this_profile.ipc = ((double) this_instret) / ((double) this_cycle);
 	this_profile.mpc = ((double) this_llcmiss) / ((double) this_cycle);
@@ -44,6 +48,7 @@ void l1_analysis(struct powgov_runtime *runtime)
 						runtime->sys->max_non_turbo;
 	this_profile.occurrences = 1;
 	this_profile.class = CLASS_UNKNOWN;
+	memset(this_profile.throttlehist, 0, sizeof(unsigned short) * MAX_PSTATE_NUM);
 
 	/* printf("perf status was %lx\n", runtime->sampler->l1->new_sample.frq_data); */
 
@@ -56,14 +61,12 @@ void l1_analysis(struct powgov_runtime *runtime)
 	// TODO: we need to initialize current workload to zero in main
 	if (runtime->sampler->l1->current_workload.ipc == 0.0)
 	{
-		printf("INITIALIZE CURRENT\n");
 		runtime->sampler->l1->current_workload = this_profile;
 		runtime->sampler->l1->current_workload.occurrences = 1;
 		runtime->sampler->l1->phase_begin = runtime->sampler->l1->new_sample;
 		runtime->sampler->l1->current_workload.frq =
 				(double) ((runtime->sampler->l1->new_sample.frq_data >> 8) & 0xFFul);
 		runtime->sampler->l1->current_workload.frq_target = runtime->sys->max_pstate;
-		print_profile(&runtime->sampler->l1->current_workload);
 		// return here, this is first iteration so we don't have enough info yet
 		return;
 	}
@@ -75,6 +78,10 @@ void l1_analysis(struct powgov_runtime *runtime)
 		// clear out the throttle flags, so they will indicate again next time
 		write_msr_by_coord(0, 0, 0, MSR_CORE_PERF_LIMIT_REASONS, (limreasons & LIMIT_LOG_MASK));
 		runtime->sampler->l1->isthrottled = 1;
+	}
+	else
+	{
+		runtime->sampler->l1->isthrottled = 0;
 	}
 
 	// check control flow, did we stay in the same phase or has it changed?
@@ -97,6 +104,7 @@ void l1_analysis(struct powgov_runtime *runtime)
 	}
 }
 
+// if the phase hasn't changed we should update the current workload descriptor with sample
 void update_current_workload(struct powgov_runtime *runtime, struct workload_profile * prof)
 {
 	struct workload_profile *current = &runtime->sampler->l1->current_workload;
@@ -111,7 +119,7 @@ void update_current_workload(struct powgov_runtime *runtime, struct workload_pro
 	uint64_t this_exstalls = new_sample->exstalls - phase_begin->exstalls;
 	uint64_t this_branchret = new_sample->branchret - phase_begin->branchret;
 
-	// create a profile for the last executed epoch
+	// use a weighted average to update each measured item
 	current->ipc = ((double) this_instret) / ((double) this_cycle);
 	current->mpc = ((double) this_llcmiss) / ((double) this_cycle);
 	current->rpc = ((double) this_restalls) / ((double) this_cycle);
@@ -122,6 +130,7 @@ void update_current_workload(struct powgov_runtime *runtime, struct workload_pro
 					runtime->sys->max_non_turbo;
 }
 
+// check if we are still in the same phase
 int branch_same_workload(struct powgov_runtime *runtime, struct workload_profile *this_profile)
 {
 	struct workload_profile scaled_profile;
@@ -151,6 +160,153 @@ int branch_same_workload(struct powgov_runtime *runtime, struct workload_profile
 	return 0;
 }
 
+// if we are not in the same phase, check if this workload is familiar
+static int find_best_workload_match(struct powgov_runtime *runtime, struct workload_profile *workload, double *best_dist)
+{
+	struct phase_profile *phases = runtime->classifier->phases;
+	double min_dist = DBL_MAX;
+	int min_idx = -1;
+	int i;
+	for (i = 0; i < runtime->classifier->numphases; i++)
+	{
+		struct workload_profile new_workload;
+		// measure the distance to every known phase
+		frequency_scale_phase(workload, workload->frq, phases[i].workload.frq,
+				&new_workload);
+		double dist = workload_metric_distance(&new_workload, &phases[i].workload,
+				&runtime->classifier->prof_maximums);
+
+#ifdef NEW_DEBUG
+		printf("current workload dist from phase %d: %lf (%lf cyc)\n", i, dist, cycdiff);
+		print_profile(&phases[i].workload);
+		print_profile(workload);
+#endif
+		// if we are within the threshold then we have found a matching phase
+		if (dist < min_dist)
+		{
+			// we found workload that is similar, see if this phase cyc len is also similar
+			min_dist = dist;
+			min_idx = i;
+		}
+	}
+	*best_dist = min_dist;
+	return min_idx;
+}
+
+// check through previously seen phases to find if this workload is new or not
+static int find_best_phase_match(struct powgov_runtime *runtime, struct phase_profile *this_phase, double *best_dist, struct workload_profile *min_scaled_profile)
+{
+	struct phase_profile *phases = runtime->classifier->phases;
+	double min_dist = DBL_MAX;
+	int min_idx = -1;
+	int i;
+	for (i = 0; i < runtime->classifier->numphases; i++)
+	{
+		double cycdiff = fabs(phases[i].cycles - this_phase->cycles);
+		if (cycdiff < runtime->classifier->phase_cycle_thresh)
+		{
+			// measure the distance to every known phase
+			frequency_scale_phase(&runtime->sampler->l1->current_workload, 
+					runtime->sampler->l1->current_workload.frq, phases[i].workload.frq,
+					&this_phase->workload);
+			double dist = workload_metric_distance(&this_phase->workload, &phases[i].workload,
+					&runtime->classifier->prof_maximums);
+
+#ifdef NEW_DEBUG
+			printf("current workload dist from phase %d: %lf (%lf cyc)\n", i, dist, cycdiff);
+			print_profile(&phases[i].workload);
+			print_profile(&this_phase->workload);
+#endif
+			// if we are within the threshold then we have found a matching phase
+			if (dist < min_dist)
+			{
+				// we found workload that is similar, see if this phase cyc len is also similar
+				min_dist = dist;
+				min_idx = i;
+				*min_scaled_profile = this_phase->workload;
+			}
+		}
+	}
+	*best_dist = min_dist;
+	return min_idx;
+}
+
+// check the prediction from the level 3 graph to see if correct
+static int check_prediction(struct powgov_runtime *runtime, struct workload_profile *this_profile)
+{
+	struct l3_graph_node *prediction;
+	int i;
+	if (runtime->sampler->l3->predictor != NULL)
+	{
+		/* printf("phase %d\n", */
+		/* 		(int) (runtime->sampler->l3->predictor->phase - runtime->classifier->phases)); */
+		for (i = 0; i < 3; i++)
+		{
+			prediction = runtime->sampler->l3->predictor->next[i];
+			if (prediction != NULL && prediction->phase != NULL)
+			{
+				/* printf("\t%d: %d\n", i, (int) (prediction->phase - runtime->classifier->phases)); */
+				struct workload_profile scaled_profile;
+				double dist_to_predicted;
+				// scale the epoch phase to the frequency of the last seen phase
+				frequency_scale_phase(this_profile, this_profile->frq, prediction->phase->workload.frq,
+						&scaled_profile);
+				// calculate distance between epoch and last seen phase
+				dist_to_predicted = workload_metric_distance(&scaled_profile,
+						&prediction->phase->workload,
+						&runtime->classifier->prof_maximums);
+				/* printf("\nhave workload\n"); */
+				/* print_profile(this_profile); */
+				/* printf("predicted workload\n"); */
+				/* print_profile(&runtime->sampler->l3->predicted_phase->workload); */
+				if (dist_to_predicted < runtime->classifier->dist_thresh)
+				{
+					/* printf("phase %d prediction for phase %d (next %d) was correct\n", */
+					/* 		(int) (runtime->sampler->l3->predictor->phase - */
+					/* 		runtime->classifier->phases), */
+					/* 		(int) (prediction->phase - runtime->classifier->phases), i); */
+					/* printf("\tsetting frq %lf for correct prediction of phase %d\n", */
+					/* 		prediction->phase->workload.frq_target, */
+					/* 		(int)(prediction->phase - runtime->classifier->phases)); */
+					// prediction was correct
+					this_profile->frq_target =
+							prediction->phase->workload.frq_target;
+					// load unthrottle cycle counter
+					this_profile->unthrottle_cycles =
+						prediction->phase->workload.unthrottle_cycles;
+					this_profile->flags = prediction->phase->workload.flags;
+					// advance predictor
+					runtime->sampler->l3->predictor = runtime->sampler->l3->predictor->next[i];
+					return 1;
+				}
+			}
+		}
+		/* printf("phase %d prediction was wrong\n", */
+		/* 		(int) (runtime->sampler->l3->predictor->phase - runtime->classifier->phases)); */
+	}
+	// set predictor to closest matching phase
+	double min_dist;
+	int min_idx = find_best_workload_match(runtime, this_profile, &min_dist);
+	if (min_idx >= 0 && min_dist <= runtime->classifier->dist_thresh)
+	{
+		// set predictor to graph node with best match
+		struct l3_graph_node *begin = runtime->sampler->l3->graph;
+		struct l3_graph_node *itr = runtime->sampler->l3->graph;
+		for ( ;
+				itr < begin + MAX_L3_GRAPH &&
+				itr->phase != &runtime->classifier->phases[min_idx];
+				itr++);
+		runtime->sampler->l3->predictor = itr;
+	}
+	else
+	{
+		// set predictor to NULL because we haven't seen this before
+		runtime->sampler->l3->predictor = NULL;
+	}
+	return 0;
+}
+
+// if the workload is not the same, we should either find a previously seen one or start anew
 int branch_change_workload(struct powgov_runtime *runtime, struct workload_profile *this_profile)
 {
 	// we are in a new phase, we can now say what the last phase was 
@@ -161,7 +317,7 @@ int branch_change_workload(struct powgov_runtime *runtime, struct workload_profi
 				runtime->sampler->l1->phase_begin.tsc_data;
 	//this_phase.workload = runtime->sampler->l1->current_workload;// write without read
 	this_phase.phase_occurrences = 1;
-
+	this_phase.workload = runtime->sampler->l1->current_workload;
 	// update phase begin marker with the last sample, which was the end
 	runtime->sampler->l1->phase_begin = runtime->sampler->l1->prev_sample;
 
@@ -169,23 +325,9 @@ int branch_change_workload(struct powgov_runtime *runtime, struct workload_profi
 	this_profile->frq_target = runtime->sys->max_pstate;
 
 	// check if current_workload has been predicted by L3 
-	if (runtime->sampler->l3->predicted_phase != NULL)
+	if (runtime->sampler->l3->current_node != NULL)
 	{
-		struct workload_profile scaled_profile;
-		double dist_to_predicted;
-		// scale the epoch phase to the frequency of the last seen phase
-		frequency_scale_phase(this_profile, this_profile->frq,
-				runtime->sampler->l3->predicted_phase->workload.frq, &scaled_profile);
-		// calculate distance between epoch and last seen phase
-		dist_to_predicted = workload_metric_distance(&scaled_profile,
-				&runtime->sampler->l3->predicted_phase->workload,
-				&runtime->classifier->prof_maximums);
-		if (dist_to_predicted < runtime->classifier->dist_thresh)
-		{
-			// prediction was correct
-			this_profile->frq_target =
-					runtime->sampler->l3->predicted_phase->workload.frq_target;
-		}
+		check_prediction(runtime, this_profile);
 	}
 
 	/* printf("new phase cycles %lf\t", this_phase.cycles); */
@@ -197,47 +339,18 @@ int branch_change_workload(struct powgov_runtime *runtime, struct workload_profi
 	// a phase just completed and the current_workload represents that phase
 	// now we need to find the best matching previously seen phase to update the registry
 	// find nearest neighbor WORKLOAD, anything within cycle thresh is valid
-	struct phase_profile *phases = runtime->classifier->phases;
+	
 	struct workload_profile min_scaled_profile;
-	double min_dist = DBL_MAX;
-	double min_cycles = DBL_MAX;
-	int min_idx = -1;
-	int i;
-	for (i = 0; i < runtime->classifier->numphases; i++)
-	{
-		double cycdiff = fabs(phases[i].cycles - this_phase.cycles);
-		if (cycdiff < runtime->classifier->phase_cycle_thresh)
-		{
-			// measure the distance to every known phase
-			frequency_scale_phase(&runtime->sampler->l1->current_workload, 
-					runtime->sampler->l1->current_workload.frq, phases[i].workload.frq,
-					&this_phase.workload);
-			double dist = workload_metric_distance(&this_phase.workload, &phases[i].workload,
-					&runtime->classifier->prof_maximums);
-
-#ifdef NEW_DEBUG
-			printf("current workload dist from phase %d: %lf (%lf cyc)\n", i, dist, cycdiff);
-			print_profile(&phases[i].workload);
-			print_profile(&this_phase.workload);
-#endif
-			// if we are within the threshold then we have found a matching phase
-			if (dist < min_dist)
-			{
-				// we found workload that is similar, see if this phase cyc len is also similar
-				min_dist = dist;
-				min_cycles = cycdiff;
-				min_idx = i;
-				min_scaled_profile = this_phase.workload;
-			}
-		}
-	}
-	/* printf("min diff %lf\t", min_dist); */
+	double min_dist;
+	int min_idx = find_best_phase_match(runtime, &this_phase,
+			&min_dist, &min_scaled_profile);
 #ifdef NEW_DEBUG
 	printf("found min %d with dist %lf\n", min_idx, min_dist);
 #endif
+	struct phase_profile *phases = runtime->classifier->phases;
+	// TODO: need to initialize predictor somewhere once we gain information
 	if (min_idx >= 0 && min_dist <= runtime->classifier->dist_thresh)
 	{
-		/* printf("is seen\n"); */
 #ifdef NEW_DEBUG
 		print_profile(&phases[min_idx].workload);
 #endif
@@ -248,20 +361,6 @@ int branch_change_workload(struct powgov_runtime *runtime, struct workload_profi
 	}
 	else
 	{
-		/*
-		printf("\nadding new phase\n");
-		print_profile(&this_phase.workload);
-		printf("\tcycles%lf\n", this_phase.cycles);
-		printf("most similar phase\n");
-		print_profile(&phases[min_idx].workload);
-		printf("cycle diff %lf, distance %lf\n", min_cycles, min_dist);
-		for (i = 0; i < runtime->classifier->numphases; i++)
-		{
-			print_profile(&phases[i].workload);
-			printf("\tcycles%lf\n", phases[i].cycles);
-			printf("\tcycle diff%lf\n", fabs(phases[i].cycles - this_phase.cycles));
-		}
-		*/
 #ifdef NEW_DEBUG
 		printf("\nList Distances:\n");
 		for (i = 0; i < runtime->classifier->numphases; i++)
@@ -290,9 +389,18 @@ int branch_change_workload(struct powgov_runtime *runtime, struct workload_profi
 				return -1;
 			}
 		}
-		struct phase_profile *new_phase = add_phase(runtime, 
-				&runtime->sampler->l1->current_workload, this_phase.cycles);
-		add_graph_node(runtime, new_phase);
+
+		if (this_phase.cycles >= (FRQ_AS_GHZ(this_phase.workload.frq) * 1000000000.0 *
+				(1.0 / (double) runtime->sampler->sps)) + 1000000.0)
+		{
+			struct phase_profile *new_phase = add_phase(runtime, 
+					&runtime->sampler->l1->current_workload, this_phase.cycles);
+			add_graph_node(runtime, new_phase);
+		}
+		/* else */
+		/* { */
+		/* 	printf("skipping phase transition point\n"); */
+		/* } */
 
 #ifdef NEW_DEBUG
 		printf("\nadded new phase\n");
@@ -314,6 +422,7 @@ int branch_change_workload(struct powgov_runtime *runtime, struct workload_profi
 	return 0;
 }
 
+// for the current workload, decide how to set the processor frequency
 void react_to_workload(struct powgov_runtime *runtime)
 {
 	struct workload_profile *profile = &runtime->sampler->l1->current_workload;
@@ -322,36 +431,64 @@ void react_to_workload(struct powgov_runtime *runtime)
 	if (runtime->cfg->mem_frq_override != 0.0 && profile->class == CLASS_MEM)
 	{
 		profile->frq_target = runtime->cfg->mem_frq_override;
+		/* printf("mem phase fixed at frequency %f\n", FRQ_AS_GHZ(profile->frq_target)); */
 		set_perf(runtime, (uint16_t) profile->frq_target);
 		return;
 	}
 	else if (runtime->cfg->cpu_frq_override != 0.0 && profile->class == CLASS_CPU)
 	{
 		profile->frq_target = runtime->cfg->cpu_frq_override;
+		/* printf("cpu phase fixed at frequency %f\n", FRQ_AS_GHZ(profile->frq_target)); */
 		set_perf(runtime, (uint16_t) profile->frq_target);
 		return;
 	}
 
-	// do throttle avoidance if enabled
-	if (runtime->cfg->throttle_avoid && (runtime->sampler->l1->isthrottled ||
-			runtime->sampler->l2->excursion))
+	if (profile->flags & 0x1)
 	{
-		// we were throttled use multiplicative decrease to drop frequency fast
-		profile->frq_target -= runtime->cfg->frq_change_step *
-				runtime->cfg->throttle_step_mult;
-		profile->unthrottle_cycles = 0;
+		// this phase has been frozen by L3, skip throttle avoidance
+		/* printf("phase frozen at frequency %f\n", FRQ_AS_GHZ(profile->frq_target)); */
+		set_perf(runtime, (uint16_t) profile->frq_target);
+		return;
 	}
-	else
+	/* if (profile->l3_freeze != 0) */
+	/* { */
+	/* 	printf("phase is frozen, set to pstate %x\n", profile->l3_freeze + 8); */
+	/* 	set_perf(runtime, (uint16_t) (profile->l3_freeze + 8); */
+	/* 	return; */
+	/* } */
+    /*  */
+	// do throttle avoidance if enabled
+	if (runtime->cfg->throttle_avoid)
 	{
-		// we were not throttled, use additive increase to raise frequency slowly
-		if (profile->frq_target < runtime->sys->max_pstate && profile->unthrottle_cycles >=
-				runtime->cfg->fup_timeout)
+		if (runtime->sampler->l1->isthrottled || runtime->sampler->l2->excursion)
 		{
-			profile->frq_target += runtime->cfg->frq_change_step;
-			profile->unthrottle_cycles = 0;
+			int ps_idx = ((unsigned) profile->frq_target) - runtime->sys->min_pstate;
+			/* printf("frequency %f index is %d\n", FRQ_AS_GHZ(ps_idx + 8), ps_idx); */
+			profile->throttlehist[ps_idx]++; 
+			if (profile->frq_target > runtime->sys->min_pstate)
+			{
+				// we were throttled use multiplicative decrease to drop frequency fast
+				profile->frq_target -= runtime->cfg->frq_change_step *
+						runtime->cfg->throttle_step_mult;
+				profile->unthrottle_cycles = 0;
+			}
+		}
+		else
+		{
+			// we were not throttled, use additive increase to raise frequency slowly
+			if (profile->frq_target < runtime->sys->max_pstate && profile->unthrottle_cycles >=
+					runtime->cfg->fup_timeout)
+			{
+				profile->frq_target += runtime->cfg->frq_change_step;
+				profile->unthrottle_cycles = 0;
+			}
 		}
 	}
 
+#ifndef FRACTIONAL_FREQS
+	set_perf(runtime, (uint16_t) profile->frq_target);
+	profile->unthrottle_cycles++;
+#else
 	// set the frequency
 	if (profile->frq_target == runtime->sys->max_pstate)
 	{
@@ -377,8 +514,10 @@ void react_to_workload(struct powgov_runtime *runtime)
 		profile->frq_duty_count++;
 		profile->unthrottle_cycles++;
 	}
+#endif
 }
 
+// the current workload has ended, update its phase information
 struct phase_profile *update_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, struct phase_profile *prof, double phase_cycles)
 {
 	prof->phase_occurrences++;
@@ -395,6 +534,19 @@ struct phase_profile *update_phase(struct powgov_runtime *runtime, struct worklo
 	prof->workload.epc = (prof->workload.epc * prev_ratio) + (this_profile->epc * new_ratio);
 	prof->workload.bpc = (prof->workload.bpc * prev_ratio) + (this_profile->bpc * new_ratio);
 	prof->workload.frq = (prof->workload.frq * prev_ratio) + (this_profile->frq * new_ratio);
+	if ((prof->workload.flags & 0x1) == 0)
+	{
+		prof->workload.frq_target = runtime->sampler->l1->current_workload.frq_target;
+		/* printf("\tupdating phase %d frq to %f\n", (int)(prof - runtime->classifier->phases), */
+		/* 		prof->workload.frq_target); */
+	}
+	prof->workload.unthrottle_cycles =
+		runtime->sampler->l1->current_workload.unthrottle_cycles;
+	int i;
+	for (i = 0; i < MAX_PSTATE_NUM; i++)
+	{
+		prof->workload.throttlehist[i] += this_profile->throttlehist[i];
+	}
 
 	double prev_phase_ratio = ((double) prof->phase_occurrences - 1.0) /
 			(double) prof->phase_occurrences;
@@ -404,17 +556,21 @@ struct phase_profile *update_phase(struct powgov_runtime *runtime, struct worklo
 	return prof;
 }
 
+// the current workload has ended but is a new one, add its phase information
 struct phase_profile *add_phase(struct powgov_runtime *runtime, struct workload_profile *this_profile, double phase_cycles)
 {
 	struct phase_profile *newphase = 
-		&runtime->classifier->phases[runtime->classifier->numphases];
+	&runtime->classifier->phases[runtime->classifier->numphases];
 
 	newphase->workload = *this_profile;
+	newphase->workload.frq_target = runtime->sampler->l1->current_workload.frq_target;
+	newphase->workload.unthrottle_cycles =
+		runtime->sampler->l1->current_workload.unthrottle_cycles;
 	newphase->cycles = phase_cycles;
 	newphase->phase_occurrences = 1;
+	memcpy(newphase->workload.throttlehist, this_profile->throttlehist, sizeof(unsigned short) *
+			MAX_PSTATE_NUM);
 
 	runtime->classifier->numphases++;
 	return newphase;
 }
-
-

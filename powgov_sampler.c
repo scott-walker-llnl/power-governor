@@ -7,6 +7,7 @@
 #include "msr_counters.h"
 #include "master.h"
 
+// this collects data from MSRs, these samples are used by level 1, 2, and 3 at different rates
 int sample_data(struct powgov_runtime *runtime)
 {
 	// TODO: core stuff for multiple thread sampling
@@ -40,6 +41,8 @@ int sample_data(struct powgov_runtime *runtime)
 	read_batch(COUNTERS_DATA);
 	runtime->sampler->l1->prev_sample = runtime->sampler->l1->new_sample;
 	unsigned long idx = runtime->sampler->samplectrs[core];
+	// in experimental mode, the sampler uses a large buffer to store data samples
+	// this buffer can be dumped later
 	if (runtime->cfg->experimental)
 	{
 		runtime->sampler->thread_samples[core][idx].frq_data = perf;
@@ -63,6 +66,8 @@ int sample_data(struct powgov_runtime *runtime)
 			runtime->sampler->samplectrs[core] = -1;
 		}
 	}
+	// in standard mode, the sampler only needs to keep track of the previous sample and
+	// the current sample for each level
 	else
 	{
 		runtime->sampler->l1->new_sample.frq_data = perf;
@@ -103,6 +108,8 @@ int sample_data(struct powgov_runtime *runtime)
 	return 0;
 }
 
+// initialize the sampler with its sample buffer and output file, this is only done if
+// we enable the flag that turns on sampler output
 void init_sampling(struct powgov_runtime *runtime)
 {
 	runtime->sampler->thread_samples = (struct data_sample **) calloc(runtime->cfg->threadcount, sizeof(struct data_sample *));

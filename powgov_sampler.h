@@ -6,6 +6,7 @@ struct powgov_l1;
 struct powgov_l2;
 struct powgov_l3;
 
+// various values gathered from MSRs to describe what is being executed
 struct data_sample
 {
 	uint64_t frq_data;

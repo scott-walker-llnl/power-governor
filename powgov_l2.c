@@ -1,6 +1,8 @@
 #include "powgov_l2.h"
 #include "powgov_l1.h"
 
+// TODO: eventually this will be used for "overpower" idea
+// this will set RAPL above the limit but monitor power to make sure we don't exceed the limit
 void l2_analysis(struct powgov_runtime *runtime)
 {
 	runtime->sampler->l2->prev_sample = runtime->sampler->l2->new_sample;

@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <math.h>
-
 #include "msr_core.h"
 #include "cpuid.h"
 #include "msr_counters.h"
@@ -86,6 +85,7 @@ void activate_performance_counters(struct powgov_runtime * runtime)
 	}
 }
 
+// this sets the processor p-state (frequency)
 void set_perf(struct powgov_runtime *runtime, const unsigned freq)
 {
 	/* printf("received freq %u to set\n", freq); */
@@ -161,6 +161,7 @@ void set_rapl2(unsigned sec, double watts, double pu, double su, unsigned affini
 	write_msr_by_coord(0, 0, 0, MSR_PKG_POWER_LIMIT, rapl);
 }
 
+// this will check if HWP is enabled, power-governor is not compatible with HWP
 void hwpstuff(FILE *out)
 {
 	uint64_t rax, rbx, rcx, rdx;

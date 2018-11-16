@@ -1,5 +1,7 @@
 #pragma once
 #include "powgov.h"
+
+#define MAX_PSTATE_NUM 50 // this can handle up to 50 pstates, or 0.8-5.8GHz
 #define MAX_PROFILES 64
 #define NUM_CLASSES 4
 #define SCALE_OUTLIER_THRESH_LOW 0.8
@@ -71,15 +73,17 @@ struct workload_profile
 	char class; // what class is the current workload (cpu, mem, etc)
 	char unthrottle_cycles; // how many cycles has the workload gone unthrottled
 	char frq_duty_count; // used to duty cycle the processor frequency to 10's of MHz
+	char flags; // flags used for control of this phase's frequency settings
+	unsigned short throttlehist[MAX_PSTATE_NUM]; // how many times this phase was throttled/frq
 };
 
 struct phase_profile
 {
-	struct workload_profile workload;
-	double cycles;
-	unsigned short phase_occurrences;
+	struct workload_profile workload; // the workload descriptor for this phase
+	double cycles; // how many cycles this phase lasts
+	unsigned short phase_occurrences; // how many times this phase has occurred
 	char l3_freeze; // used to prevent l3 from dropping again too quickly
-	double ipc_history; // ipc before l3 intervention
+	unsigned short pthrottlehist[MAX_PSTATE_NUM];
 };
 
 struct powgov_classifier
